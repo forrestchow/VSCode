@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>淘宝销量采集器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 680px; max-height: 540px;
+      font-family: "PingFang SC","Microsoft YaHei",sans-serif;
+      font-size: 13px; color: #333; background: #f7f8fa;
+      overflow-y: auto;
+    }
+    .container { padding: 16px; }
+    h1 {
+      font-size: 16px; font-weight: 600; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h1 small { font-size: 12px; font-weight: 400; color: #999; }
+    .status-bar {
+      background: #fff; border-radius: 8px; padding: 12px 16px;
+      margin-bottom: 12px; border: 1px solid #e8e8e8;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .status-bar .info { color: #666; font-size: 12px; }
+    .btn {
+      padding: 8px 20px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s; white-space: nowrap;
+    }
+    .btn-primary { background: #ff5000; color: #fff; }
+    .btn-primary:hover { background: #e64500; }
+    .btn-primary:disabled { background: #ffb08a; cursor: not-allowed; }
+    .btn-success { background: #00b578; color: #fff; }
+    .btn-success:hover { background: #009a63; }
+    .btn-warning { background: #ff9100; color: #fff; }
+    .btn-warning:hover { background: #e67e00; }
+    .btn-warning:disabled { background: #ffc880; cursor: not-allowed; }
+    .btn-secondary { background: #e8e8e8; color: #666; }
+    .btn-secondary:hover { background: #ddd; }
+
+    .table-wrap {
+      background: #fff; border-radius: 8px; border: 1px solid #e8e8e8;
+      overflow: hidden; max-height: 320px; overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th {
+      background: #f7f8fa; text-align: left; padding: 8px 10px;
+      font-weight: 600; color: #555; border-bottom: 1px solid #e8e8e8;
+      position: sticky; top: 0; z-index: 1; white-space: nowrap;
+    }
+    td { padding: 8px 10px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    .prod-title {
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sales-cell { font-weight: 600; color: #ff5000; }
+    .empty {
+      text-align: center; padding: 40px 0; color: #bbb; font-size: 14px;
+    }
+    .hint {
+      text-align: center; padding: 30px 0; color: #999; font-size: 13px;
+      line-height: 1.8;
+    }
+    .bottom-bar {
+      margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .loading {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #ddd; border-top-color: #ff5000;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .log-panel {
+      margin-top: 12px; border: 1px solid #e8e8e8; border-radius: 8px;
+      background: #1e1e1e; overflow: hidden;
+    }
+    .log-header {
+      padding: 6px 12px; background: #2a2a2a;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px; color: #ccc; user-select: none; cursor: pointer;
+    }
+    .log-header:hover { background: #333; }
+    .log-body {
+      max-height: 160px; overflow-y: auto; padding: 6px 12px;
+      font: 11px/1.5 monospace; display: none;
+    }
+    .log-body.open { display: block; }
+    .log-entry { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+    .log-entry.info { color: #8bc34a; }
+    .log-entry.error { color: #f44336; }
+    .log-entry.warn { color: #ffc107; }
+    .log-entry.success { color: #4caf50; }
+    .log-toggle { font-size: 11px; color: #ff5000; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📊 淘宝销量采集器</h1>
+
+    <div class="status-bar" id="statusBar">
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+        <!-- row 1: keyword -->
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:#999;white-space:nowrap;">关键词</span>
+          <textarea id="searchKeyword" placeholder="多个用换行分隔" rows="2"
+            style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;resize:none;"></textarea>
+          <button class="btn btn-primary" id="startBtn">▶ 开始采集</button>
+          <button class="btn btn-success" id="skuPriceBtn">📊 查看SKU价格</button>
+          <button class="btn btn-secondary" id="fixBtn" style="display:none;">🔧 修复</button>
+          <button class="btn btn-primary" id="resumeBtn" style="display:none;">▶ 继续</button>
+          <button class="btn btn-secondary" id="clearBtn" title="清空数据">🗑</button>
+        </div>
+        <!-- row 2: controls -->
+        <div style="display:flex;align-items:flex-end;gap:6px;">
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span style="font-size:10px;color:#999;">延迟</span>
+            <input type="number" id="delayInput" value="2" min="1" max="3" step="0.5"
+              style="width:40px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center;">
+          </div>
+          <span style="font-size:10px;color:#999;">秒</span>
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span style="font-size:10px;color:#999;">最小销量</span>
+            <input type="number" id="minSalesInput" value="" min="0" step="100" placeholder="不限"
+              style="width:56px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center;">
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span style="font-size:10px;color:#999;">详情数量</span>
+            <input type="number" id="maxCountInput" value="3" min="0" step="1"
+              style="width:44px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center;" title="0=全部">
+          </div>
+          <label style="font-size:10px;color:#666;cursor:pointer;display:flex;align-items:center;gap:2px;">
+            <input type="checkbox" id="autoPageChk"> 自动翻页
+          </label>
+          <span class="info" id="statusText" style="flex:1;text-align:right;">等待启动...</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="resultArea">
+      <div class="hint" id="emptyHint">
+        输入关键词，点击「开始采集」即可。<br>
+        通过 MTOP API 直接获取搜索数据，无需打开淘宝页面。
+      </div>
+    </div>
+
+    <div class="log-panel" id="logPanel">
+      <div class="log-header" id="logHeader">
+        <span>📋 运行日志</span>
+        <span class="log-toggle" id="logToggle">收起</span>
+      </div>
+      <div class="log-body open" id="logBody"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

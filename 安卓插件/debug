@@ -1,0 +1,85 @@
+● Android 自动化与元素定位的主流技术方案
+
+  一、核心技术路线
+
+  1. Appium（最成熟）
+  - 语言：Python / Java / JavaScript / C# 均可
+  - 原理：基于 WebDriver 协议，底层调用 Android 的 UIAutomator2
+  - 优点：跨平台、社区大、生态完善、支持多种定位策略（id/xpath/acc  essibility id）
+  - 缺点：相对较重，启动慢
+
+  2. Airtest + Poco（推荐国内场景）
+
+  - 语言：Python
+  - 原理：Airtest 负责图像识别定位，Poco 负责 UI 树元素定位
+  - 优点：网易开源，中文文档丰富，支持"图像+控件"双模式，对游戏和
+  复杂 UI 友好
+  - 缺点：Poco 需要 app 集成 SDK（或使用 Android 原生模式）
+
+  3. uiautomator2（Python 库，轻量）
+
+  - 语言：Python
+  - 原理：直接封装 Android 的 UIAutomator2，通过 HTTP 与手机上的
+  agent 通信
+  - 优点：极简 API，启动快，适合写脚本
+  - 缺点：仅 Android
+
+  pip install uiautomator2
+  python -m uiautomator2 init  # 自动安装手机端 agent
+
+  4. HTTP 抓包方案（最可靠的数据获取方式）
+
+  - 工具：mitmproxy / Charles / Fiddler
+  - 语言：Python（mitmproxy 支持 Python 脚本）
+  - 思路：直接拦截 app 的 API 请求，解析 JSON 响应获取商品数据
+  - 优点：不受 UI 变动影响，数据最完整
+  - 挑战：淘宝等大厂 app 有 SSL Pinning + 请求签名，需要配合
+  Xposed/root 绕过
+
+  ---
+  二、针对淘宝/电商类 app 的现实建议
+
+  方案: Appium / uiautomator2 脚本
+  适用场景: 个人小批量采集
+  难度: ⭐⭐
+  稳定性: 中（UI 变动即失效）
+  ────────────────────────────────────────
+  方案: mitmproxy 抓 API
+  适用场景: 大批量、稳定采集
+  难度: ⭐⭐⭐
+  稳定性: 高（需绕过证书校验）
+  ────────────────────────────────────────
+  方案: Airtest 图像识别
+  适用场景: 无法获取 UI 树时
+  难度: ⭐
+  稳定性: 低（分辨率敏感）
+
+  推荐组合：uiautomator2 + Python
+  写脚本，轻量够用。如果需要稳定大批量，走 mitmproxy 抓 API
+  路线，配合 Magisk + TrustMeAlready 模块绕过 SSL Pinning。
+
+  ---
+  三、最简示例（uiautomator2）
+
+  import uiautomator2 as u2
+
+  d = u2.connect()  # USB 连接手机
+  d.app_start("com.taobao.taobao")
+
+  # 搜索商品
+  d(resourceId="com.taobao.taobao:id/searchEdit").set_text("耳机")  d.press("enter")
+
+  # 获取价格
+  prices = d.xpath('//*[contains(@text, "¥")]').all()
+  for p in prices:
+      print(p.get_text())
+
+  ---
+  四、关键前置条件
+
+  1. 开发者选项 → 开启 USB 调试
+  2. 手机需安装对应框架的 agent apk（uiautomator2 一行命令自动装）
+  3. 抓 API 方案还需：root + Magisk + 证书信任模块
+
+  如果你明确一下你的具体场景（个人小批量 vs 长期稳定采集、是否有
+  root 条件），我可以给出更具体的方案建议。
