@@ -1,0 +1,16 @@
+# HTML snapshots (dev temporary files)
+html_snapshots/
+test_nodes/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env

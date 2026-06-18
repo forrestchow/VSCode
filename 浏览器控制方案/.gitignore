@@ -1,0 +1,21 @@
+# Chrome user profiles (huge, contains cache/cookies/history)
+chrome_profile*/
+chrome_profile_*/
+
+# Playwright browser binaries (downloaded, not source code)
+ms-playwright/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Screenshots (large, temp files)
+*.png
+*.jpg
+
+# Claude settings
+.claude/
+
+# Database files (runtime artifacts)
+*.db.mv.db
+*.db.trace.db
