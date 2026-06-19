@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>抖音视频链接解析</title>
+  <style>
+    :root {
+      --primary: #0551fd;
+      --bg: #f5f6f8;
+      --card: #fff;
+      --text: #333;
+      --radius: 10px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding-top: 80px;
+    }
+    .container { width: 640px; max-width: 95vw; }
+    h1 { text-align: center; font-size: 22px; margin-bottom: 24px; color: var(--text); }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      margin-bottom: 16px;
+    }
+
+    .input-row { display: flex; gap: 10px; }
+    .input-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .input-row input:focus { border-color: var(--primary); }
+    .input-row button {
+      padding: 10px 24px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .input-row button:hover { opacity: .9; }
+    .input-row button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .result { margin-top: 16px; display: none; }
+    .result.show { display: block; }
+
+    .result .title { font-size: 14px; color: #666; margin-bottom: 8px; word-break: break-all; }
+
+    .video-list { list-style: none; }
+    .video-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f9fafb;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .video-list .tag {
+      flex-shrink: 0;
+      font-size: 11px;
+      background: #e8f0fe;
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .video-list .link { flex: 1; color: #555; }
+    .video-list .copy-btn {
+      flex-shrink: 0;
+      padding: 4px 12px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      color: #666;
+    }
+    .video-list .copy-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+    .error { color: #e43; font-size: 13px; margin-top: 12px; display: none; }
+    .error.show { display: block; }
+    .hint { color: #999; font-size: 12px; margin-top: 8px; }
+
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 20px;
+      color: #999;
+      font-size: 13px;
+    }
+    .loading.show { display: block; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid #e0e0e0;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: -3px;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>抖音视频链接解析</h1>
+
+    <div class="card">
+      <div class="input-row">
+        <input type="text" id="urlInput" placeholder="直接粘贴抖音分享的全部文字，自动提取链接">
+        <button id="parseBtn" onclick="doParse()">解析</button>
+      </div>
+      <div class="hint">支持 v.douyin.com / www.douyin.com 分享链接</div>
+
+      <div class="loading" id="loading">
+        <span class="spinner"></span>解析中...
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <div class="result" id="result">
+        <div class="title" id="videoTitle"></div>
+        <ul class="video-list" id="videoList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    function extractUrl(text) {
+      const m = text.match(/https?:\/\/(v\.douyin|www\.douyin|www\.iesdouyin)\.com\/\S+/);
+      return m ? m[0].replace(/[:/?#\]\)]+$/, '') : text.trim();
+    }
+
+    async function doParse() {
+      let raw = $('urlInput').value.trim();
+      if (!raw) return;
+      const url = extractUrl(raw);
+
+      $('parseBtn').disabled = true;
+      $('error').className = 'error';
+      $('result').className = 'result';
+      $('loading').className = 'loading show';
+
+      try {
+        const resp = await fetch('/api/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+          $('error').textContent = data.error;
+          $('error').className = 'error show';
+        } else {
+          $('videoTitle').textContent = data.title || '视频';
+          const list = $('videoList');
+          list.innerHTML = '';
+          data.video_urls.forEach((u, i) => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+              <span class="tag">线路${i + 1}</span>
+              <span class="link">${u}</span>
+              <button class="copy-btn" onclick="copyUrl('${u.replace(/'/g, "\\'")}', this)">复制</button>
+            `;
+            list.appendChild(li);
+          });
+          $('result').className = 'result show';
+        }
+      } catch (e) {
+        $('error').textContent = '网络错误，请检查服务是否启动';
+        $('error').className = 'error show';
+      } finally {
+        $('parseBtn').disabled = false;
+        $('loading').className = 'loading';
+      }
+    }
+
+    function copyUrl(url, btn) {
+      navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+      }).catch(() => {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+      });
+    }
+
+    // 回车触发解析
+    $('urlInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doParse();
+    });
+  </script>
+</body>
+</html>

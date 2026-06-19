@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "拼多多评价自动回复",
+  "version": "1.0.0",
+  "description": "自动检测第一条5星好评并回复指定内容",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "拼多多评价自动回复"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mms.pinduoduo.com/goods/evaluation/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "permissions": ["storage"]
+}

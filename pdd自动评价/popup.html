@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>拼多多评价自动回复</title>
+  <style>
+    :root {
+      --primary: #0551fd;
+      --primary-hover: #0440cc;
+      --bg: #ffffff;
+      --text: #333;
+      --border: #e0e0e0;
+      --success: #67c23a;
+      --radius: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 400px;
+      font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', monospace;
+      color: var(--text);
+      background: var(--bg);
+      padding: 12px;
+      font-size: 13px;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; color: #666; margin-bottom: 3px; }
+    .field textarea {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: 13px;
+      outline: none;
+      resize: vertical;
+      min-height: 40px;
+      font-family: inherit;
+    }
+    .field textarea:focus { border-color: var(--primary); }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .actions button {
+      flex: 1;
+      padding: 7px 0;
+      border: none;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger { background: #e43; color: #fff; }
+    .btn-danger:hover { background: #c32; }
+    .btn-secondary { background: #f0f0f0; color: var(--text); }
+    .btn-secondary:hover { background: #e0e0e0; }
+
+    .log-box {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: 6px;
+      padding: 8px;
+      height: 260px;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.6;
+      font-family: 'Consolas', 'Courier New', monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: text;
+    }
+    .log-box:empty::before {
+      content: '运行日志将显示在这里...';
+      color: #666;
+    }
+    .log-box .log-line { color: #d4d4d4; }
+    .log-box .log-err { color: #f48771; }
+    .log-box .log-ok { color: #89d185; }
+    .log-box .log-warn { color: #dcdcaa; }
+    .log-box .log-info { color: #6db3f8; }
+    .log-box .log-sep { color: #569cd6; }
+
+    .footer { margin-top: 6px; font-size: 11px; color: #999; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>评价自动回复</h1>
+
+<div class="field">
+    <label for="replyText">回复内容</label>
+    <textarea id="replyText" rows="2">感谢老板认可～正宗天然湖盐，纯净无添加，吃得放心又健康，期待您下次回购！</textarea>
+  </div>
+
+  <div class="field" style="display: flex; align-items: center; gap: 12px;">
+    <div>
+      <label for="replyCount">回复条数 <span style="color:#999;font-weight:400;font-size:11px;">0=一直运行</span></label>
+      <input type="number" id="replyCount" min="0" value="10" style="width: 70px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; outline: none;">
+    </div>
+    <div>
+      <label for="replySpeed">回复速度</label>
+      <select id="replySpeed" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; outline: none;">
+        <option value="2000">普通 (2s)</option>
+        <option value="3000">慢速 (3s)</option>
+        <option value="5000">保守 (5s)</option>
+      </select>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:11px;color:#999;">已回复</div>
+      <div id="replyCounter" style="font-size:22px;font-weight:700;color:var(--primary);line-height:1.2;">0</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-primary" id="runBtn">立即运行</button>
+    <button class="btn-secondary" id="checkStatusBtn">检测状态</button>
+    <button class="btn-secondary" id="saveBtn">保存</button>
+    <button class="btn-secondary" id="clearBtn">清空日志</button>
+  </div>
+
+  <div class="log-box" id="logBox"></div>
+  <div class="footer">运行日志 - 可选中复制</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

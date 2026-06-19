@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "淘宝销量采集器",
+  "version": "1.0",
+  "description": "采集淘宝搜索页商品销量数据，支持导出 CSV",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "淘宝销量采集器"
+  },
+  "permissions": ["downloads", "storage", "cookies"],
+  "host_permissions": ["*://*.taobao.com/*", "*://*.tmall.com/*", "*://h5api.m.taobao.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://s.taobao.com/search*", "*://www.taobao.com/search*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.taobao.com/item*", "*://*.tmall.com/item*"],
+      "js": ["content_detail.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
