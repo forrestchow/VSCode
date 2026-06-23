@@ -1,5 +1,13 @@
 """
-鼠标轨迹数据集 — 加载 JSONL → 归一化 → delta 序列 → PyTorch Dataset
+鼠标轨迹数据集 — 方案A: 步数自适应 + 数据增强
+
+每条样本:
+    condition: [start_x, start_y, end_x, end_y, steps]  归一化 5 维
+    deltas:    [(dx1,dy1), ..., (dxN,dyN)]              归一化 delta
+    mask:      [1, 1, ..., 1, 0, 0, 0]                 有效位 mask
+
+方案A 核心: condition 包含 steps（目标步数），训练时通过数据增强让模型
+学会「同一距离、不同步数」的映射，推理时根据距离动态决定步数。
 """
 
 import json
@@ -8,21 +16,21 @@ import torch
 from torch.utils.data import Dataset
 from pathlib import Path
 
+from config import (
+    SEQ_LEN, STEP_AUGMENT_FIXED, STEP_AUGMENT_RELATIVE,
+    STEP_AUGMENT_MIN, STEP_AUGMENT_MAX,
+)
+
 
 class MouseTrajectoryDataset(Dataset):
     """
-    每条样本：
-        condition: [start_x, start_y, end_x, end_y]  归一化到 [0, 1]
-        deltas:    [(dx1,dy1), ..., (dxN,dyN)]      归一化 delta 序列
-        mask:      [1, 1, ..., 1, 0, 0, 0]         有效位 mask
+    方案A 数据集:
+    - condition: (5,) → [sx, sy, ex, ey, steps]
+    - 数据增强: 每条原始轨迹造多个 steps 版本
+    - 统一 pad 到 SEQ_LEN
     """
 
-    def __init__(self, jsonl_paths, seq_len=200):
-        """
-        Args:
-            jsonl_paths: JSONL 文件路径 或 路径列表
-            seq_len: 统一序列长度
-        """
+    def __init__(self, jsonl_paths, seq_len=SEQ_LEN):
         self.seq_len = seq_len
 
         if isinstance(jsonl_paths, (str, Path)):
@@ -35,15 +43,19 @@ class MouseTrajectoryDataset(Dataset):
         if not self.samples:
             raise ValueError(f"未找到有效轨迹数据，请检查: {jsonl_paths}")
 
-        print(f"加载 {len(self.samples)} 条轨迹")
+        print(f"加载 {len(self.samples)} 条样本（含增强）")
+        # 统计目标步数分布
+        steps_vals = [s["condition"][4] for s in self.samples]
+        print(f"  目标步数范围: {min(steps_vals):.0f} – {max(steps_vals):.0f}")
 
     def _load_file(self, path: Path):
-        """加载一个 JSONL 文件"""
+        """加载一个 JSONL 文件，对每条轨迹做数据增强"""
         if not path.exists():
             print(f"  [跳过] 文件不存在: {path}")
             return
 
-        count = 0
+        raw_count = 0
+        aug_count = 0
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -51,17 +63,25 @@ class MouseTrajectoryDataset(Dataset):
                     continue
                 try:
                     obj = json.loads(line)
-                    processed = self._preprocess(obj)
-                    if processed is not None:
-                        self.samples.append(processed)
-                        count += 1
+                    augmented = self._preprocess(obj)
+                    if augmented:
+                        self.samples.extend(augmented)
+                        raw_count += 1
+                        aug_count += len(augmented)
                 except (json.JSONDecodeError, KeyError) as e:
                     print(f"  [跳过] JSON 解析错误: {e}")
 
-        print(f"  {path.name}: {count} 条")
+        print(f"  {path.name}: {raw_count} 条原始轨迹 → {aug_count} 条增强样本")
 
     def _preprocess(self, obj: dict):
-        """预处理单条轨迹 → normalized deltas"""
+        """
+        预处理单条轨迹 → 返回 N 条增强样本的列表
+
+        每份增强样本:
+          condition: (5,) → [sx, sy, ex, ey, target_steps]
+          deltas: (seq_len, 2) → pad 到统一长度
+          mask: (seq_len,) → 有效位
+        """
         trajectory = obj.get("trajectory", [])
         if len(trajectory) < 3:
             return None
@@ -78,56 +98,105 @@ class MouseTrajectoryDataset(Dataset):
         xs_norm = xs / cw
         ys_norm = ys / ch
 
-        # ── 转为 delta 序列 ──
+        # ── 原始 delta 序列 ──
         dx = np.diff(xs_norm)
         dy = np.diff(ys_norm)
-        deltas = np.stack([dx, dy], axis=-1)  # (T, 2)
+        raw_deltas = np.stack([dx, dy], axis=-1)  # (T_orig, 2)
+        T_orig = len(raw_deltas)
 
-        if len(deltas) < 2:
+        if T_orig < 2:
             return None
 
-        # ── 条件向量：[start_x, start_y, end_x, end_y] 归一化 ──
-        start_x, start_y = xs_norm[0], ys_norm[0]
-        end_x, end_y = xs_norm[-1], ys_norm[-1]
-        condition = np.array([start_x, start_y, end_x, end_y], dtype=np.float32)
+        # ── 起点终点（归一化） ──
+        sx, sy = xs_norm[0], ys_norm[0]
+        ex, ey = xs_norm[-1], ys_norm[-1]
 
-        # ── 统一长度 ──
-        deltas, mask = self._pad_or_truncate(deltas)
+        # ── 方案A 数据增强: 多种目标步数 ──
+        target_steps_list = self._get_target_steps(T_orig)
 
-        return {
-            "condition": condition,
-            "deltas": deltas,
-            "mask": mask,
-        }
+        results = []
+        for target_steps in target_steps_list:
+            # 重采样到目标步数
+            deltas = self._resample_deltas(raw_deltas, target_steps)
 
-    def _pad_or_truncate(self, deltas: np.ndarray):
+            # pad 到 SEQ_LEN
+            deltas, mask = self._pad_to_len(deltas)
+
+            # 5 维 condition（steps 归一化到 [0,1]，与其他 4 维尺度一致）
+            condition = np.array([sx, sy, ex, ey, target_steps / self.seq_len], dtype=np.float32)
+
+            results.append({
+                "condition": condition,
+                "deltas": deltas,
+                "mask": mask,
+            })
+
+        return results
+
+    def _get_target_steps(self, original_steps: int):
         """
-        将 delta 序列填充/截断到 self.seq_len
+        根据原始步数生成目标步数列表（数据增强）
 
-        关键：截断时必须在**绝对坐标**上重采样再算 delta，
-        否则截断后的 delta 累加和 ≠ 原始位移，导致终点误差放大。
+        包含:
+          - 固定档位 (30, 60, 90, ...)
+          - 相对倍率 (0.5x, 1.0x, 1.5x, 2.0x)
+        去重后过滤到 [MIN, MAX] 范围
+        """
+        candidates = set()
+
+        # 固定档位
+        for s in STEP_AUGMENT_FIXED:
+            if STEP_AUGMENT_MIN <= s <= STEP_AUGMENT_MAX:
+                candidates.add(s)
+
+        # 相对原始步数的倍率
+        for factor in STEP_AUGMENT_RELATIVE:
+            s = int(original_steps * factor)
+            if STEP_AUGMENT_MIN <= s <= STEP_AUGMENT_MAX:
+                candidates.add(s)
+
+        # 确保原始步数一定在列表里
+        if STEP_AUGMENT_MIN <= original_steps <= STEP_AUGMENT_MAX:
+            candidates.add(original_steps)
+
+        return sorted(candidates)
+
+    def _resample_deltas(self, deltas: np.ndarray, target_steps: int):
+        """
+        索引均匀重采样 delta 序列到 target_steps
+
+        原理: 在绝对坐标上做 index-uniform 插值，保留速度曲线形状
+        适用于上采样(target > T)和下采样(target < T)
+        [代码] 等同原 _pad_or_truncate 截断分支的逻辑，此处泛化
+        """
+        T = len(deltas)
+        if T == target_steps:
+            return deltas.copy()
+
+        # 还原绝对坐标
+        abs_pos = np.zeros((T + 1, 2), dtype=np.float32)
+        for i in range(T):
+            abs_pos[i + 1] = abs_pos[i] + deltas[i]
+
+        # 按目标步数均匀索引插值
+        new_indices = np.linspace(0, T, target_steps + 1)
+        new_abs = np.zeros((target_steps + 1, 2), dtype=np.float32)
+        for d in range(2):
+            new_abs[:, d] = np.interp(new_indices, np.arange(T + 1), abs_pos[:, d])
+
+        return np.diff(new_abs, axis=0)
+
+    def _pad_to_len(self, deltas: np.ndarray):
+        """
+        将 delta 序列 pad 到 self.seq_len，返回 (deltas, mask)
         """
         T = len(deltas)
 
         if T >= self.seq_len:
-            # ── 截断：在绝对坐标上均匀重采样 ──
-            # 还原绝对坐标（相对坐标累加）
-            abs_pos = np.zeros((T + 1, 2), dtype=np.float32)
-            abs_pos[0] = [0.0, 0.0]
-            for i in range(T):
-                abs_pos[i + 1] = abs_pos[i] + deltas[i]
-
-            # 均匀采样 seq_len+1 个位置点
-            new_indices = np.linspace(0, T, self.seq_len + 1)
-            new_abs = np.zeros((self.seq_len + 1, 2), dtype=np.float32)
-            for d in range(2):
-                new_abs[:, d] = np.interp(new_indices, np.arange(T + 1), abs_pos[:, d])
-
-            # 重新计算 delta
-            deltas = np.diff(new_abs, axis=0)  # (seq_len, 2)
+            # 极少情况：截断（兜底）
+            deltas = deltas[:self.seq_len]
             mask = np.ones(self.seq_len, dtype=np.float32)
         else:
-            # ── 填充：末尾补零 ──
             pad_len = self.seq_len - T
             deltas = np.pad(deltas, ((0, pad_len), (0, 0)), mode="constant")
             mask = np.concatenate([
@@ -150,14 +219,14 @@ class MouseTrajectoryDataset(Dataset):
 
     @property
     def input_dim(self):
-        return 4  # [sx, sy, ex, ey]
+        return 5  # [sx, sy, ex, ey, steps]
 
     @property
     def output_dim(self):
         return 2  # (dx, dy)
 
 
-def create_dataloaders(jsonl_path, seq_len=200, batch_size=16,
+def create_dataloaders(jsonl_path, seq_len=SEQ_LEN, batch_size=16,
                        train_ratio=0.7, val_ratio=0.15, seed=42):
     """
     从 JSONL 文件创建 train/val/test DataLoader
@@ -167,7 +236,6 @@ def create_dataloaders(jsonl_path, seq_len=200, batch_size=16,
     full_dataset = MouseTrajectoryDataset(jsonl_path, seq_len=seq_len)
     n = len(full_dataset)
 
-    # 计算划分
     n_train = int(n * train_ratio)
     n_val = int(n * val_ratio)
     n_test = n - n_train - n_val

@@ -19,9 +19,37 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent / "training"))
 from model import create_model
 from config import SEQ_LEN, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, MODEL_DIR
+from config import STEPS_INTERCEPT, STEPS_SLOPE
 
-# ── 插值参数 ──
-SMOOTH_FACTOR = 4  # 模型输出 200 点 → 插值到 800 点（4倍）
+# ── 可调参数 ──
+# 帧间隔时间: 每发送帧的物理间隔，Hz 越高越细腻
+SEND_HZ = 2000              # 发送频率 (Hz): 1000=1ms, 2000=0.5ms, 8000=0.125ms
+# 每帧相对距离: 每帧允许的最大位移，值越小轨迹越密、越慢
+TARGET_PX_PER_FRAME = 0.5   # 目标每帧位移 (px): 0.25=更密更慢, 0.5=正常, 0.75=更快
+# 速度倍率: 等比缩放整体速度
+SPEED_MULT = 1.0            # 速度: 0.5=慢一半, 1.0=正常, 2.0=快一倍
+
+# 键盘快捷键（运行中实时调节）:
+#   ↑/↓  调整 SPEED_MULT (±0.25)
+#   ←/→  调整 SEND_HZ (±500Hz)
+#   +/-   调整 TARGET_PX_PER_FRAME (±0.1)
+
+
+def predict_steps(distance_px):
+    """
+    根据距离预测模型应生成的步数
+
+    来源: 训练数据线性拟合  [数据] trajectories_2026-06-17.jsonl
+    公式: steps = 43.4 + 0.092 × distance_px  (r=0.68)
+
+    Args:
+        distance_px: 起点到终点的像素距离
+
+    Returns:
+        int: 推荐步数，限制在 [20, SEQ_LEN] 范围
+    """
+    steps = int(STEPS_INTERCEPT + STEPS_SLOPE * distance_px)
+    return max(20, min(steps, SEQ_LEN))
 
 
 def _catmull_rom_spline(points, upsample_factor=4):
@@ -125,6 +153,15 @@ class ModelDemo:
         self.canvas.bind("<Button-3>", lambda e: self._reset())
         root.bind("<Escape>", lambda e: self.root.destroy())
 
+        # 键盘调节参数
+        root.bind("<Up>", lambda e: self._adj_speed(0.25))
+        root.bind("<Down>", lambda e: self._adj_speed(-0.25))
+        root.bind("<Right>", lambda e: self._adj_hz(500))
+        root.bind("<Left>", lambda e: self._adj_hz(-500))
+        root.bind("<plus>", lambda e: self._adj_target_px(0.1))
+        root.bind("<minus>", lambda e: self._adj_target_px(-0.1))
+        root.bind("<equal>", lambda e: self._adj_target_px(0.1))  # shift+= 也是 +
+
         # 底部状态栏
         self.status = tk.Label(
             root, text="🖱 点击画布任意位置 → 设定起点",
@@ -175,21 +212,53 @@ class ModelDemo:
         self._anim_idx = 0
         self.status.config(text="🖱 已重置 — 点击画布设定起点")
 
+    def _adj_speed(self, delta):
+        global SPEED_MULT
+        SPEED_MULT = max(0.25, SPEED_MULT + delta)
+        self.status.config(
+            f"速度倍率: x{SPEED_MULT:.2f} | "
+            f"SEND_HZ={SEND_HZ}Hz | TARGET_PX={TARGET_PX_PER_FRAME:.2f}px"
+        )
+
+    def _adj_hz(self, delta):
+        global SEND_HZ
+        SEND_HZ = max(125, SEND_HZ + delta)
+        self.status.config(
+            f"SEND_HZ: {SEND_HZ}Hz ({1000/SEND_HZ:.2f}ms/帧) | "
+            f"速度倍率: x{SPEED_MULT:.2f} | TARGET_PX={TARGET_PX_PER_FRAME:.2f}px"
+        )
+
+    def _adj_target_px(self, delta):
+        global TARGET_PX_PER_FRAME
+        TARGET_PX_PER_FRAME = max(0.1, round(TARGET_PX_PER_FRAME + delta, 2))
+        self.status.config(
+            f"TARGET_PX: {TARGET_PX_PER_FRAME:.2f}px/帧 | "
+            f"SEND_HZ={SEND_HZ}Hz | 速度倍率: x{SPEED_MULT:.2f}"
+        )
+
     def _generate(self):
-        """模型推理 + 终点校正"""
+        """模型推理 + 自适应步数 + 终点校正 + 自适应 CR 插值"""
         cw, ch = self._canvas_size()
         sx, sy = self._start_pos
         ex, ey = self._end_pos
 
-        # 归一化
+        # ── 方案A: 距离 → 步数预测 × 速度倍率 ──
+        distance = np.sqrt((ex - sx)**2 + (ey - sy)**2)
+        base_steps = predict_steps(distance)
+        actual_steps = max(10, int(base_steps / SPEED_MULT))  # 倍率↑ → 步数↓ → 更快
+
+        # ── 归一化 ──
         sx_n, sy_n = sx / cw, sy / ch
         ex_n, ey_n = ex / cw, ey / ch
-        condition = torch.tensor([[sx_n, sy_n, ex_n, ey_n]], dtype=torch.float32)
+        # 5 维 condition [sx, sy, ex, ey, steps/SEQ_LEN]（steps 归一化）
+        condition = torch.tensor(
+            [[sx_n, sy_n, ex_n, ey_n, actual_steps / SEQ_LEN]], dtype=torch.float32
+        )
 
         with torch.no_grad():
-            deltas = self.model(condition, max_steps=SEQ_LEN).squeeze(0).numpy()
+            deltas = self.model(condition, max_steps=actual_steps).squeeze(0).numpy()
 
-        # 累积 → 像素坐标
+        # ── 累积 → 像素坐标 ──
         pts = np.zeros((len(deltas) + 1, 2), dtype=np.float32)
         pts[0] = [sx_n, sy_n]
         for i in range(len(deltas)):
@@ -197,7 +266,24 @@ class ModelDemo:
         pts[:, 0] *= cw
         pts[:, 1] *= ch
 
-        # 终点校正
+        # ── 抗蠕动: 找到位移不再增长的裁剪点 ──
+        cumsum = np.cumsum(deltas, axis=0)
+        total_disp = np.sqrt(cumsum[:, 0]**2 + cumsum[:, 1]**2)
+        total_disp_max = total_disp[-1]
+        if total_disp_max > 0:
+            # 位移达到 98% 处截断，去掉后面的蠕动帧
+            cutoff = int(np.searchsorted(total_disp, total_disp_max * 0.98) + 1)
+            if cutoff > 0 and cutoff < len(deltas):
+                deltas = deltas[:cutoff]
+                # 重新累积
+                pts = np.zeros((len(deltas) + 1, 2), dtype=np.float32)
+                pts[0] = [sx_n, sy_n]
+                for i in range(len(deltas)):
+                    pts[i + 1] = pts[i] + deltas[i]
+                pts[:, 0] *= cw
+                pts[:, 1] *= ch
+
+        # ── 终点校正 ──
         raw_end = pts[-1].copy()
         target = np.array([ex, ey], dtype=np.float32)
         correction = target - raw_end
@@ -208,14 +294,37 @@ class ModelDemo:
         pts[:, 0] = np.clip(pts[:, 0], 0, cw)
         pts[:, 1] = np.clip(pts[:, 1], 0, ch)
 
-        self._gen_points = _catmull_rom_spline(pts, upsample_factor=SMOOTH_FACTOR)
+        # ── 自适应 CR 插值: 目标每帧位移 × 速度倍率 ──
+        # 倍率↑ → 允许每帧更大位移 → CR↓ → 总帧数↓ → 更快
+        model_deltas = np.diff(pts, axis=0)
+        avg_step = np.mean(np.sqrt(model_deltas[:, 0]**2 + model_deltas[:, 1]**2))
+        target_px = TARGET_PX_PER_FRAME * SPEED_MULT
+        adaptive_factor = max(2, int(avg_step / target_px))
+        self._gen_points = _catmull_rom_spline(pts, upsample_factor=adaptive_factor)
         self._anim_idx = 0
+
+        # ── 保存本次轨迹数据供 _animate 显示 ──
+        self._traj_info = {
+            "distance": distance,
+            "base_steps": base_steps,
+            "model_steps": actual_steps,
+            "speed_mult": SPEED_MULT,
+            "cr_factor": adaptive_factor,
+            "send_points": len(self._gen_points),
+            "total_time_ms": len(self._gen_points) / SEND_HZ * 1000,
+            "per_step_ms": 1000 / SEND_HZ,
+            "send_hz": SEND_HZ,
+            "avg_px_per_send": distance / len(self._gen_points) if len(self._gen_points) > 0 else 0,
+        }
 
         raw_err = np.sqrt((raw_end[0] - ex)**2 + (raw_end[1] - ey)**2)
         self.status.config(
             f"🟢 ({sx},{sy}) → 🔴 ({ex},{ey}) | "
-            f"模型 200 点 → 插值 {len(self._gen_points)} 点 | "
-            f"原始误差: {raw_err:.0f}px | 已生成: {self._count} | 继续点击..."
+            f"距离 {distance:.0f}px | 模型步数 {actual_steps} | "
+            f"CR {adaptive_factor}x → {len(self._gen_points)} 发送点 | "
+            f"耗时 {self._traj_info['total_time_ms']:.0f}ms | "
+            f"每发送帧 {self._traj_info['per_step_ms']:.1f}ms | "
+            f"原始误差 {raw_err:.0f}px | #{self._count}"
         )
 
     def _animate(self):
@@ -241,6 +350,23 @@ class ModelDemo:
             canvas.create_text(ex, ey - 14, text="终点", font=("Microsoft YaHei", 8),
                                fill="#f44336")
 
+        # ── 轨迹信息浮层 ──
+        if hasattr(self, '_traj_info') and self._traj_info:
+            info = self._traj_info
+            lines = [
+                f"距离: {info['distance']:.0f} px",
+                f"速度倍率: x{info['speed_mult']:.1f} | 步数: {info['base_steps']} -> {info['model_steps']}",
+                f"CR 插值: x{info['cr_factor']} -> {info['send_points']} 发送点",
+                f"发送频率: {info['send_hz']} Hz = 每帧 {info['per_step_ms']:.1f} ms",
+                f"总耗时: {info['total_time_ms']:.0f} ms | 每帧 {info['avg_px_per_send']:.2f} px",
+            ]
+            y0 = 10
+            for i, line in enumerate(lines):
+                canvas.create_text(
+                    10, y0 + i * 18, text=line, anchor="w",
+                    font=("Consolas", 9), fill="#333333"
+                )
+
         # ── 生成轨迹动画 ──
         if self._gen_points is not None and len(self._gen_points) >= 2:
             pts = self._gen_points
@@ -248,8 +374,11 @@ class ModelDemo:
             flat = [c for pt in pts for c in pt]
             canvas.create_line(*flat, fill="#e3f2fd", width=1)
 
-            # 动画进度（亮色前景）— 步长适配插值倍数
-            self._anim_idx = min(self._anim_idx + 3 * SMOOTH_FACTOR, len(pts) - 1)
+            # 动画进度（亮色前景）— 按真实时间推进
+            # tkinter ~33fps(30ms/帧)，每帧应推进 30ms 对应的发送点数
+            # 30ms × SEND_HZ/1000 = 应推进的发送点数
+            step_size = max(1, int(30 * SEND_HZ / 1000))
+            self._anim_idx = min(self._anim_idx + step_size, len(pts) - 1)
             anim_pts = pts[:self._anim_idx + 1]
             if len(anim_pts) >= 2:
                 flat2 = [c for pt in anim_pts for c in pt]

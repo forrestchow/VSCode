@@ -30,6 +30,7 @@ from config import (
     LEARNING_RATE, WEIGHT_DECAY,
     EPOCHS, EARLY_STOP_PATIENCE, GRAD_CLIP,
     DATA_DIR, MODEL_DIR,
+    STEPS_INTERCEPT, STEPS_SLOPE, STEP_AUGMENT_MIN, STEP_AUGMENT_MAX,
 )
 
 
@@ -67,8 +68,9 @@ def compute_endpoint_error(pred_deltas, condition, mask, canvas_size=(942, 621))
     final_pos = cumsum[batch_indices, lengths, :]  # (B, 2)
 
     # 目标终点（相对于起点的偏移）
-    start = condition[:, :2]   # (B, 2)
-    end = condition[:, 2:]     # (B, 2)
+    # condition 方案A: (B, 5) = [sx, sy, ex, ey, steps]
+    start = condition[:, :2]   # (B, 2)  sx, sy
+    end = condition[:, 2:4]    # (B, 2)  ex, ey
     target_delta = end - start  # (B, 2)
 
     # 像素误差
@@ -242,6 +244,12 @@ def main():
                     "num_layers": NUM_LAYERS,
                     "dropout": DROPOUT,
                     "seq_len": SEQ_LEN,
+                    # 方案A 参数
+                    "input_dim": 5,                         # [sx, sy, ex, ey, steps]
+                    "steps_intercept": STEPS_INTERCEPT,     # 步数预测
+                    "steps_slope": STEPS_SLOPE,
+                    "step_augment_min": STEP_AUGMENT_MIN,   # 增强范围
+                    "step_augment_max": STEP_AUGMENT_MAX,
                 },
             }, MODEL_DIR / "best_model.pt")
         else:

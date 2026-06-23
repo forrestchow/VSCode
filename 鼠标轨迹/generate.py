@@ -20,6 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "training"))
 
 from model import create_model
 from config import SEQ_LEN, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, MODEL_DIR, DATA_DIR
+from config import STEPS_INTERCEPT, STEPS_SLOPE
+
+
+def predict_steps(distance_px):
+    """
+    根据距离预测模型应生成的步数
+
+    来源: 训练数据线性拟合  [数据] trajectories_2026-06-17.jsonl
+    公式: steps = 43.4 + 0.092 × distance_px  (r=0.68)
+    """
+    steps = int(STEPS_INTERCEPT + STEPS_SLOPE * distance_px)
+    return max(20, min(steps, SEQ_LEN))
 
 
 def load_model(model_path=None):
@@ -47,13 +59,14 @@ def load_model(model_path=None):
 def generate_trajectory(model, start_x, start_y, end_x, end_y,
                         canvas_w=942, canvas_h=621, max_steps=SEQ_LEN):
     """
-    生成一条轨迹
+    生成一条轨迹（方案A: 步数自适应）
 
     Args:
         model: 训练好的模型
         start_x, start_y: 起点（画布坐标）
         end_x, end_y: 终点（画布坐标）
         canvas_w, canvas_h: 画布尺寸
+        max_steps: 最大步数（默认 SEQ_LEN，实际按距离自适应）
 
     Returns:
         normalized_points: [(x, y), ...] 归一化坐标列表
@@ -65,11 +78,28 @@ def generate_trajectory(model, start_x, start_y, end_x, end_y,
     ex = end_x / canvas_w
     ey = end_y / canvas_h
 
-    condition = torch.tensor([[sx, sy, ex, ey]], dtype=torch.float32)
+    # ── 方案A: 距离 → 步数 ──
+    distance_px = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
+    actual_steps = predict_steps(distance_px)
+    actual_steps = min(actual_steps, max_steps)  # 不超过 max_steps
+
+    # 5 维 condition [sx, sy, ex, ey, steps/SEQ_LEN]（steps 归一化）
+    condition = torch.tensor(
+        [[sx, sy, ex, ey, actual_steps / SEQ_LEN]], dtype=torch.float32
+    )
 
     with torch.no_grad():
-        deltas_norm = model(condition, max_steps=max_steps)  # (1, T, 2)
-        deltas_norm = deltas_norm.squeeze(0).numpy()         # (T, 2)
+        deltas_norm = model(condition, max_steps=actual_steps)  # (1, T, 2)
+        deltas_norm = deltas_norm.squeeze(0).numpy()            # (T, 2)
+
+    # ── 抗蠕动裁剪 ──
+    cumsum = np.cumsum(deltas_norm, axis=0)
+    total_disp = np.sqrt(cumsum[:, 0]**2 + cumsum[:, 1]**2)
+    total_disp_max = total_disp[-1]
+    if total_disp_max > 0:
+        cutoff = int(np.searchsorted(total_disp, total_disp_max * 0.98) + 1)
+        if 0 < cutoff < len(deltas_norm):
+            deltas_norm = deltas_norm[:cutoff]
 
     # 累积 → 绝对坐标（归一化）
     norm_points = np.zeros((len(deltas_norm) + 1, 2), dtype=np.float32)

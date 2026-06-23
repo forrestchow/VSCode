@@ -19,15 +19,15 @@ class TrajectoryLSTM(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
-        # 条件嵌入
+        # 条件嵌入（方案A: 5 维 = [sx, sy, ex, ey, steps]）
         self.condition_embed = nn.Sequential(
-            nn.Linear(4, 32),
+            nn.Linear(5, 32),
             nn.ReLU(),
             nn.Linear(32, 32),
             nn.ReLU(),
         )
 
-        # LSTM
+        # LSTM（输入: prev_delta(2) + condition_emb(32) = 34）
         self.lstm = nn.LSTM(
             input_size=2 + 32,       # prev_delta(2) + condition_emb(32)
             hidden_size=hidden_size,
