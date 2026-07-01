@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>食盐品牌气泡图 — 件单价 × 客单价 × 月销量</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="bubble_chart_data.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#f0f2f5; display:flex; justify-content:center; padding:20px 0; }
+.wrap { max-width:1550px; width:100%; background:#fff; border:1px solid #e0e0e0; border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,0.08); overflow:hidden; position:relative; }
+h2 { text-align:center; padding:18px 0 2px; font-size:20px; color:#333; }
+.sub { text-align:center; color:#999; font-size:12px; margin-bottom:6px; }
+
+.legend-section { padding:4px 16px; }
+.legend-row { display:flex; align-items:center; margin:3px 0; position:relative; }
+.legend-label { font-size:12px; color:#999; font-weight:bold; white-space:nowrap; margin-right:10px; min-width:62px; text-align:right; flex-shrink:0; }
+.legend-scroll-wrap { flex:1; overflow:hidden; position:relative; min-width:0; }
+.legend-items { display:flex; gap:0; white-space:nowrap; transition:transform 0.3s ease; }
+.legend-item { display:inline-flex; align-items:center; gap:5px; cursor:pointer; padding:4px 10px; border-radius:4px; font-size:12px; color:#555; white-space:nowrap; user-select:none; flex-shrink:0; border:2px solid transparent; }
+.legend-item:hover { background:#f5f5f5; }
+.legend-item.active { border-color:#f0883e; background:#fff7f0; font-weight:bold; }
+.legend-dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+.legend-pct { color:#aaa; font-size:11px; }
+
+.legend-all { display:inline-flex; align-items:center; cursor:pointer; padding:3px 8px; border-radius:4px; font-size:12px; color:#999; border:1px solid #ddd; margin-right:8px; flex-shrink:0; user-select:none; }
+.legend-all:hover { background:#f0f0f0; color:#555; }
+.legend-all.active { background:#f0883e; color:#fff; border-color:#f0883e; }
+
+.arrow-btn { width:24px; height:24px; border:1px solid #ddd; border-radius:4px; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:14px; color:#888; }
+.arrow-btn:hover { background:#f0f0f0; border-color:#bbb; }
+.arrow-btn.disabled { opacity:0.3; cursor:default; }
+.arrow-left { margin-right:4px; }
+.arrow-right { margin-left:4px; }
+
+#chart { width:100%; height:760px; }
+
+/* Stats bar */
+.stats-bar { display:flex; align-items:center; gap:20px; padding:6px 16px; font-size:12px; color:#888; background:#fafafa; border-bottom:1px solid #eee; flex-wrap:wrap; }
+.stats-bar .stats-label { font-weight:bold; color:#f0883e; font-size:13px; }
+.stats-bar b { color:#333; margin-left:2px; }
+.stats-add { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:#f0883e; color:#fff; font-size:16px; font-weight:bold; cursor:pointer; margin-left:auto; flex-shrink:0; }
+.stats-add:hover { background:#d97030; }
+.stats-add.disabled { background:#ccc; cursor:not-allowed; }
+
+.compare-section { padding:0 16px 8px; font-size:12px; background:#fafafa; border-bottom:1px solid #eee; overflow-x:auto; }
+.compare-title { font-weight:bold; color:#333; padding:8px 0 4px; }
+.compare-table { width:100%; border-collapse:collapse; font-size:12px; }
+.compare-table th { background:#fff; padding:6px 8px; text-align:left; font-weight:bold; color:#f0883e; border-bottom:2px solid #f0883e; white-space:nowrap; position:sticky; top:0; }
+.compare-table td { padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+.compare-table .ct-close { cursor:pointer; color:#aaa; font-size:14px; padding:0 4px; }
+.compare-table .ct-close:hover { color:#e74c3c; }
+.compare-table .ct-tags { color:#888; font-size:11px; }
+
+/* Pinned info panel */
+.pin-panel { position:absolute; top:30px; right:50px; background:#fff; border:1px solid #e0e0e0; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.12); padding:16px 20px; font-size:13px; line-height:1.8; z-index:10; display:none; min-width:240px; max-height:85vh; overflow-y:auto; }
+.pin-panel.show { display:block; }
+.pin-panel .close-btn { position:absolute; top:6px; right:10px; cursor:pointer; font-size:16px; color:#aaa; }
+.pin-panel .close-btn:hover { color:#333; }
+.pin-panel .pp-brand { font-size:16px; font-weight:bold; color:#333; }
+.pin-panel .pp-salt { color:#888; margin-bottom:8px; }
+.pin-panel .pp-row { display:flex; justify-content:space-between; margin:2px 0; }
+.pin-panel .pp-label { color:#999; }
+.pin-panel .pp-val { font-weight:bold; color:#333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h2>食盐品牌竞争格局</h2>
+<p class="sub">全量 355 SKU  |  X=件单价  |  Y=客单价  |  气泡=月销量  |  点击维度筛选（同维度多选，跨维度多选）</p>
+
+<!-- Stats bar -->
+<div class="stats-bar" id="statsBar">
+  <span class="stats-label">筛选统计</span>
+  <span>商品数 <b id="statCount">-</b></span>
+  <span>销售额合计 <b id="statSalesSum">-</b></span>
+  <span>销售额中位数 <b id="statSalesMed">-</b></span>
+  <span>件单价均值 <b id="statUnitAvg">-</b></span>
+  <span>件单价中位数 <b id="statUnitMed">-</b></span>
+  <span>客单价均值 <b id="statOrderAvg">-</b></span>
+  <span>客单价中位数 <b id="statOrderMed">-</b></span>
+  <span class="stats-add" id="statsAdd" onclick="addCompare()" title="加入对比">+</span>
+</div>
+
+<!-- Compare rows -->
+<div class="compare-section" id="compareSection" style="display:none;">
+  <div class="compare-title">对比数据 <span style="font-weight:normal;font-size:11px;color:#999;">（相同筛选项不可重复加入，上下行对比）</span></div>
+  <table class="compare-table" id="compareTable">
+    <thead id="compareHead"></thead>
+    <tbody id="compareBody"></tbody>
+  </table>
+</div>
+
+<div class="legend-section">
+  <div class="legend-row">
+    <span class="legend-label">食盐种类</span>
+    <span class="legend-all active" onclick="selectAll('salt')">全选</span>
+    <button class="arrow-btn arrow-left" onclick="scrollRow('salt',-1)">&#9664;</button>
+    <div class="legend-scroll-wrap" id="salt-wrap"><div class="legend-items" id="salt-row"></div></div>
+    <button class="arrow-btn arrow-right" onclick="scrollRow('salt',1)">&#9654;</button>
+  </div>
+  <div class="legend-row">
+    <span class="legend-label">品牌</span>
+    <span class="legend-all active" onclick="selectAll('brand')">全选</span>
+    <button class="arrow-btn arrow-left" onclick="scrollRow('brand',-1)">&#9664;</button>
+    <div class="legend-scroll-wrap" id="brand-wrap"><div class="legend-items" id="brand-row"></div></div>
+    <button class="arrow-btn arrow-right" onclick="scrollRow('brand',1)">&#9654;</button>
+  </div>
+  <div class="legend-row">
+    <span class="legend-label">店铺</span>
+    <span class="legend-all active" onclick="selectAll('shop')">全选</span>
+    <button class="arrow-btn arrow-left" onclick="scrollRow('shop',-1)">&#9664;</button>
+    <div class="legend-scroll-wrap" id="shop-wrap"><div class="legend-items" id="shop-row"></div></div>
+    <button class="arrow-btn arrow-right" onclick="scrollRow('shop',1)">&#9654;</button>
+  </div>
+  <div class="legend-row">
+    <span class="legend-label">克重</span>
+    <span class="legend-all active" onclick="selectAll('weight')">全选</span>
+    <button class="arrow-btn arrow-left" onclick="scrollRow('weight',-1)">&#9664;</button>
+    <div class="legend-scroll-wrap" id="weight-wrap"><div class="legend-items" id="weight-row"></div></div>
+    <button class="arrow-btn arrow-right" onclick="scrollRow('weight',1)">&#9654;</button>
+  </div>
+</div>
+
+<div id="chart"></div>
+
+<!-- Pinned info panel -->
+<div class="pin-panel" id="pinPanel">
+  <span class="close-btn" onclick="unpin()">✕</span>
+  <div class="pp-brand" id="ppBrand"></div>
+  <div class="pp-salt" id="ppSalt"></div>
+  <div class="pp-row"><span class="pp-label">商品ID</span><span class="pp-val" id="ppPid"></span></div>
+  <div class="pp-row"><span class="pp-label">件单价</span><span class="pp-val" id="ppUnit"></span></div>
+  <div class="pp-row"><span class="pp-label">客单价</span><span class="pp-val" id="ppOrder"></span></div>
+  <div class="pp-row"><span class="pp-label">月销量</span><span class="pp-val" id="ppSales"></span></div>
+  <div class="pp-row"><span class="pp-label">店铺</span><span class="pp-val" id="ppShop"></span></div>
+  <div class="pp-row"><span class="pp-label">克重</span><span class="pp-val" id="ppWeight"></span></div>
+  <div class="pp-row" style="border-top:1px solid #eee;margin-top:8px;padding-top:6px;"><span class="pp-label">规格价格</span><span class="pp-val" id="ppSku" style="text-align:right;"></span></div>
+</div>
+
+<script>
+var scrollPos = {salt:0, brand:0, shop:0, weight:0};
+
+function scrollRow(row, dir) {
+  var el = document.getElementById(row+'-row');
+  var wrap = document.getElementById(row+'-wrap');
+  var step = wrap.clientWidth * 0.7;
+  var maxScroll = Math.max(0, el.scrollWidth - wrap.clientWidth);
+  scrollPos[row] = Math.max(0, Math.min(maxScroll, scrollPos[row] + dir * step));
+  el.style.transform = 'translateX('+(-scrollPos[row])+'px)';
+  updateArrows(row);
+}
+
+function updateArrows(row) {
+  var el = document.getElementById(row+'-row');
+  var wrap = document.getElementById(row+'-wrap');
+  var maxScroll = Math.max(0, el.scrollWidth - wrap.clientWidth);
+  var parent = wrap.parentElement;
+  var leftBtn = parent.querySelector('.arrow-left');
+  var rightBtn = parent.querySelector('.arrow-right');
+  if (leftBtn) leftBtn.classList.toggle('disabled', scrollPos[row] <= 0);
+  if (rightBtn) rightBtn.classList.toggle('disabled', scrollPos[row] >= maxScroll - 1);
+}
+
+// ===================== CHART LOGIC =====================
+(function(){
+  var RAW = BUBBLE_DATA.data;
+  var saltTypes = BUBBLE_DATA.salt_types;
+  var allBrands = BUBBLE_DATA.all_brands;
+  var allShops  = BUBBLE_DATA.all_shops;
+  var allWeights = BUBBLE_DATA.all_weights;
+
+  var allBrandNames = allBrands.map(function(x){return x.brand;});
+  var allShopNames  = allShops.map(function(x){return x.shop;});
+  var allWeightNames= allWeights.map(function(x){return x.weight;});
+
+  var brandShareMap = {}; allBrands.forEach(function(x){brandShareMap[x.brand]=x.share;});
+  var saltShareMap  = {}; BUBBLE_DATA.salt_shares.forEach(function(x){saltShareMap[x.salt]=x.share;});
+  var shopShareMap  = {}; allShops.forEach(function(x){shopShareMap[x.shop]=x.share;});
+  var weightShareMap= {}; allWeights.forEach(function(x){weightShareMap[x.weight]=x.share;});
+
+  var colors = {'井矿盐':'#58a6ff','海盐':'#3fb950','湖盐':'#f0883e','复合调味品':'#da3633','软水盐':'#d29922'};
+
+  // Selection state: empty Set = all selected (multiselect per row)
+  var selected = {salt:new Set(), brand:new Set(), shop:new Set(), weight:new Set()};
+
+  // Build a brand→primary salt map for coloring
+  var brandColor = {};
+  RAW.forEach(function(d){
+    if (!brandColor[d.brand]) brandColor[d.brand] = {};
+    brandColor[d.brand][d.salt] = (brandColor[d.brand][d.salt]||0)+1;
+  });
+  Object.keys(brandColor).forEach(function(b){
+    var best=null,bn=0;
+    Object.keys(brandColor[b]).forEach(function(st){
+      if(brandColor[b][st]>bn){best=st;bn=brandColor[b][st];}
+    });
+    brandColor[b] = colors[best]||'#888';
+  });
+
+  // Group data by brand (one series per brand, ALL brands)
+  var brandData = {};
+  RAW.forEach(function(d){
+    if(!brandData[d.brand]) brandData[d.brand]=[];
+    brandData[d.brand].push(d);
+  });
+
+  function makeDataPoint(d, c, showLabel) {
+    var sz = Math.max(5, Math.min(32, Math.sqrt(d.sales)*0.12));
+    return {
+      name: d.brand, value:[d.unit, d.order, d.sales], symbolSize:sz,
+      label:{show:showLabel,formatter:function(){var r=d._rank||d.rank;return '#'+r+' '+d.brand;},fontSize:10,position:'top',color:c,fontWeight:'bold'},
+      itemStyle:{color:c,opacity:0.75,borderColor:'#fff',borderWidth:1.5},
+      emphasis:{scale:2.0,itemStyle:{opacity:1},label:{show:true,fontSize:14,color:'#333'}},
+      _d:d
+    };
+  }
+
+  // Build series — every brand is its own series
+  var allSeries = [];
+  var allSeriesNames = [];
+  allBrandNames.forEach(function(b){
+    var pts = brandData[b]; if(!pts||pts.length===0) return;
+    allSeries.push({name:b, data:pts});
+    allSeriesNames.push(b);
+  });
+
+  // Build chart series
+  function buildChartSeries() {
+    return allSeries.map(function(s){
+      return {
+        name: s.name, type:'scatter',
+        data: s.data.map(function(d){
+          var c = colors[d.salt] || '#888';
+          return makeDataPoint(d, c, true);
+        })
+      };
+    });
+  }
+
+  var chart = echarts.init(document.getElementById('chart'));
+
+  function renderChart() {
+    chart.setOption({
+      tooltip:{
+        trigger:'item',backgroundColor:'#fff',borderColor:'#e0e0e0',textStyle:{color:'#333'},
+        formatter:function(p){
+          var d = p.data._d;
+          if(!d) return p.name;
+          var c = colors[d.salt]||'#888';
+          var skuParts = d.sku ? d.sku.split(';') : [];
+          var skuTable = '';
+          if (skuParts.length > 0) {
+            skuTable = '<br/><table style="margin-top:4px;border-collapse:collapse;font-size:11px;">'+
+              '<tr style="color:#999;"><th style="text-align:left;padding:2px 6px;">规格</th><th style="text-align:right;padding:2px 6px;">价格</th><th style="text-align:right;padding:2px 6px;">单价</th></tr>';
+            skuParts.forEach(function(part){
+              var p = part.split('|');
+              skuTable += '<tr><td style="padding:1px 6px;">'+p[0]+'</td><td style="text-align:right;padding:1px 6px;">¥'+p[1]+'</td><td style="text-align:right;padding:1px 6px;">¥'+p[2]+'</td></tr>';
+            });
+            skuTable += '</table>';
+          }
+          var r = d._rank || d.rank;
+          return '<b>#'+r+' '+d.brand+'</b><br/>'+
+            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+c+';margin-right:6px;"></span>'+d.salt+
+            '<br/>商品ID：'+d.pid+
+            '<br/>件单价：<b>¥'+d.unit.toFixed(2)+'</b><br/>客单价：<b>¥'+d.order.toFixed(2)+'</b><br/>月销量：<b>'+d.sales.toLocaleString()+'</b><br/>店铺：'+d.shop+'<br/>克重：'+d.weight+skuTable;
+        }
+      },
+      animationDuration:400, animationEasing:'cubicOut',
+      grid:{left:80,right:35,top:25,bottom:65},
+      xAxis:{name:'件单价 (元)',nameLocation:'center',nameGap:38,nameTextStyle:{color:'#666',fontSize:14},type:'value',min:0,interval:1,axisLabel:{color:'#888',formatter:'¥{value}'},splitLine:{lineStyle:{color:'#eee'}}},
+      yAxis:{name:'客单价 (元)',nameLocation:'center',nameGap:52,nameTextStyle:{color:'#666',fontSize:14},type:'value',min:0,axisLabel:{color:'#888',formatter:'¥{value}'},splitLine:{lineStyle:{color:'#eee'}}},
+      series: buildChartSeries(),
+    });
+  }
+
+  renderChart();
+
+  // ===================== Click-to-pin logic =====================
+  var pinnedData = null;
+
+  window.unpin = function() {
+    pinnedData = null;
+    document.getElementById('pinPanel').classList.remove('show');
+    chart.dispatchAction({type:'downplay'});
+  };
+
+  chart.on('click', function(params) {
+    if (params.componentType === 'series' && params.data && params.data._d) {
+      var d = params.data._d;
+      if (pinnedData && pinnedData.pid === d.pid) {
+        // Click same point → unpin
+        unpin();
+        return;
+      }
+      // Pin this point
+      pinnedData = d;
+      var c = colors[d.salt]||'#888';
+      document.getElementById('ppBrand').innerHTML = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+c+';margin-right:6px;"></span>#'+(d._rank||d.rank)+' '+d.brand;
+      document.getElementById('ppSalt').textContent = d.salt;
+      document.getElementById('ppPid').textContent = d.pid;
+      document.getElementById('ppUnit').textContent = '¥'+d.unit.toFixed(2);
+      document.getElementById('ppOrder').textContent = '¥'+d.order.toFixed(2);
+      document.getElementById('ppSales').textContent = d.sales.toLocaleString();
+      document.getElementById('ppShop').textContent = d.shop;
+      document.getElementById('ppWeight').textContent = d.weight;
+      var skuParts = d.sku ? d.sku.split(';') : [];
+      var skuHTML = '';
+      if (skuParts.length > 0) {
+        skuHTML = '<table style="border-collapse:collapse;font-size:11px;width:100%;margin-top:4px;">'+
+          '<tr style="color:#999;"><th style="text-align:left;padding:2px 4px;">规格</th><th style="text-align:right;padding:2px 4px;">价格</th><th style="text-align:right;padding:2px 4px;">单价</th></tr>';
+        skuParts.forEach(function(part){
+          var p = part.split('|');
+          skuHTML += '<tr><td style="padding:1px 4px;">'+p[0]+'</td><td style="text-align:right;padding:1px 4px;">¥'+p[1]+'</td><td style="text-align:right;padding:1px 4px;">¥'+p[2]+'</td></tr>';
+        });
+        skuHTML += '</table>';
+      }
+      document.getElementById('ppSku').innerHTML = skuHTML || '-';
+      document.getElementById('pinPanel').classList.add('show');
+      // Keep the point highlighted
+      chart.dispatchAction({type:'highlight',seriesName:params.seriesName,dataIndex:params.dataIndex});
+    } else if (params.componentType !== 'series') {
+      // Click blank area → unpin
+      if (pinnedData) unpin();
+    }
+  });
+
+  // ===================== Filtering logic =====================
+  // Registry: dim → value → DOM element
+  var legendEls = {salt:{}, brand:{}, shop:{}, weight:{}};
+  var dims = ['salt','brand','shop','weight'];
+
+  function applyFilter() {
+    // Determine which data points are visible
+    allSeries.forEach(function(s){
+      s.data.forEach(function(d){
+        d._visible = true;
+        if (selected.salt.size > 0 && !selected.salt.has(d.salt)) d._visible = false;
+        if (selected.brand.size > 0 && !selected.brand.has(d.brand)) d._visible = false;
+        if (selected.shop.size > 0 && !selected.shop.has(d.shop)) d._visible = false;
+        if (selected.weight.size > 0 && !selected.weight.has(d.weight)) d._visible = false;
+      });
+    });
+
+    // Collect visible data subset for percentage recalculation
+    var visibleSet = [];
+    allSeries.forEach(function(s){ s.data.forEach(function(d){ if(d._visible) visibleSet.push(d); }); });
+    var visTotal = visibleSet.reduce(function(s,d){return s+d.revenue;}, 0) || 1;
+
+    // Update percentages and re-sort legend items
+    dims.forEach(function(dim){
+      var dimMap = {'salt':'salt','brand':'brand','shop':'shop','weight':'weight'};
+      var key = dimMap[dim];
+      // Build array of {el, pct} for sorting
+      var items = [];
+      Object.keys(legendEls[dim]).forEach(function(val){
+        var el = legendEls[dim][val];
+        var subset = visibleSet.filter(function(d){ return d[key]===val; });
+        var subTotal = subset.reduce(function(s,d){return s+d.revenue;}, 0);
+        var pct = (subTotal / visTotal * 100);
+        var shareSpan = el.querySelector('.legend-pct');
+        if (shareSpan) {
+          if (pct < 0.005) shareSpan.textContent = '0%';
+          else if (pct < 0.1) shareSpan.textContent = '<0.1%';
+          else shareSpan.textContent = pct.toFixed(1)+'%';
+        }
+        items.push({el:el, pct:pct, name:val});
+      });
+      // Sort by pct desc
+      items.sort(function(a,b){ return b.pct - a.pct; });
+      // Reorder DOM
+      var row = document.getElementById(dim+'-row');
+      items.forEach(function(item){ row.appendChild(item.el); });
+      // Reset scroll
+      scrollPos[dim] = 0;
+      row.style.transform = 'translateX(0)';
+      updateArrows(dim);
+    });
+
+    // Re-rank visible data points by sales descending
+    var ranked = visibleSet.slice().sort(function(a,b){ return b.sales - a.sales; });
+    ranked.forEach(function(d, i){ d._rank = i + 1; });
+
+    // Update statistics panel
+    function median(arr) {
+      if (arr.length === 0) return 0;
+      var s = arr.slice().sort(function(a,b){return a-b;});
+      var m = Math.floor(s.length/2);
+      return s.length%2===1 ? s[m] : (s[m-1]+s[m])/2;
+    }
+    var n = visibleSet.length;
+    var revVals = visibleSet.map(function(d){return d.revenue;});
+    var unitVals = visibleSet.map(function(d){return d.unit;});
+    var orderVals = visibleSet.map(function(d){return d.order;});
+    document.getElementById('statCount').textContent = n;
+    document.getElementById('statSalesSum').textContent = (n>0 ? '¥'+visibleSet.reduce(function(s,d){return s+d.revenue;},0).toLocaleString() : '¥0');
+    document.getElementById('statSalesMed').textContent = n>0 ? '¥'+Math.round(median(revVals)).toLocaleString() : '-';
+    document.getElementById('statUnitAvg').textContent = n>0 ? '¥'+(unitVals.reduce(function(s,v){return s+v;},0)/n).toFixed(2) : '-';
+    document.getElementById('statUnitMed').textContent = n>0 ? '¥'+median(unitVals).toFixed(2) : '-';
+    document.getElementById('statOrderAvg').textContent = n>0 ? '¥'+(orderVals.reduce(function(s,v){return s+v;},0)/n).toFixed(2) : '-';
+    document.getElementById('statOrderMed').textContent = n>0 ? '¥'+median(orderVals).toFixed(2) : '-';
+
+    // Update chart series data
+    var newSeries = allSeries.map(function(s){
+      var visibleData = s.data.filter(function(d){return d._visible;});
+      return {
+        name: s.name, type:'scatter',
+        data: visibleData.map(function(d){
+          var c = colors[d.salt] || '#888';
+          return makeDataPoint(d, c, true);
+        })
+      };
+    });
+
+    chart.setOption({series: newSeries}, {replaceMerge:['series']});
+
+    // Update add button state
+    updateAddBtn();
+  }
+
+  // ===================== Comparison logic =====================
+  var comparisons = [];
+
+  function filterKey() {
+    return dims.map(function(dim){
+      var vals = Array.from(selected[dim]).sort();
+      return dim + ':' + (vals.length ? vals.join(',') : '*');
+    }).join('|');
+  }
+
+  function currentStats() {
+    var vSet = [];
+    allSeries.forEach(function(s){ s.data.forEach(function(d){ if(d._visible) vSet.push(d); }); });
+    var n = vSet.length;
+    if (n===0) return null;
+    function m(arr) {
+      var s = arr.slice().sort(function(a,b){return a-b;});
+      var h = Math.floor(s.length/2);
+      return s.length%2 ? s[h] : (s[h-1]+s[h])/2;
+    }
+    var revVals = vSet.map(function(d){return d.revenue;});
+    var uVals = vSet.map(function(d){return d.unit;});
+    var oVals = vSet.map(function(d){return d.order;});
+    return {
+      count: n,
+      salesSum: vSet.reduce(function(s,d){return s+d.revenue;},0),
+      salesMed: Math.round(m(revVals)),
+      unitAvg: (uVals.reduce(function(s,v){return s+v;},0)/n).toFixed(2),
+      unitMed: m(uVals).toFixed(2),
+      orderAvg: (oVals.reduce(function(s,v){return s+v;},0)/n).toFixed(2),
+      orderMed: m(oVals).toFixed(2),
+      tags: dims.filter(function(dim){ return selected[dim].size > 0; }).map(function(dim){
+        var vals = Array.from(selected[dim]).sort();
+        var dimNames = {salt:'盐种',brand:'品牌',shop:'店铺',weight:'克重'};
+        return (dimNames[dim]||dim)+':'+vals.join('+');
+      }).join('  |  ')
+    };
+  }
+
+  function updateAddBtn() {
+    var key = filterKey();
+    var dup = comparisons.some(function(c){ return c.key === key; });
+    var btn = document.getElementById('statsAdd');
+    btn.classList.toggle('disabled', dup);
+    btn.title = dup ? '相同筛选项已存在' : '加入对比';
+  }
+
+  function renderComparisons() {
+    var sec = document.getElementById('compareSection');
+    var head = document.getElementById('compareHead');
+    var body = document.getElementById('compareBody');
+    if (comparisons.length === 0) { sec.style.display = 'none'; return; }
+    sec.style.display = 'block';
+
+    head.innerHTML = '<tr>'+
+      '<th>#</th><th>筛选项</th><th>商品数</th><th>销售额合计</th><th>销售额中位数</th>'+
+      '<th>件单价均值</th><th>件单价中位数</th><th>客单价均值</th><th>客单价中位数</th><th></th></tr>';
+
+    body.innerHTML = '';
+    comparisons.forEach(function(c, i){
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="color:#f0883e;font-weight:bold;">#'+(i+1)+'</td>'+
+        '<td class="ct-tags">'+c.stats.tags+'</td>'+
+        '<td>'+c.stats.count+'</td>'+
+        '<td>¥'+c.stats.salesSum.toLocaleString()+'</td>'+
+        '<td>¥'+c.stats.salesMed.toLocaleString()+'</td>'+
+        '<td>¥'+c.stats.unitAvg+'</td>'+
+        '<td>¥'+c.stats.unitMed+'</td>'+
+        '<td>¥'+c.stats.orderAvg+'</td>'+
+        '<td>¥'+c.stats.orderMed+'</td>'+
+        '<td><span class="ct-close" onclick="removeCompare('+i+')">✕</span></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  window.addCompare = function() {
+    var key = filterKey();
+    if (comparisons.some(function(c){ return c.key === key; })) return;
+    var stats = currentStats();
+    if (!stats) return;
+    comparisons.push({key: key, stats: stats, selected: JSON.parse(JSON.stringify(
+      {salt:Array.from(selected.salt),brand:Array.from(selected.brand),shop:Array.from(selected.shop),weight:Array.from(selected.weight)}
+    ))});
+    renderComparisons();
+    updateAddBtn();
+  };
+
+  window.removeCompare = function(i) {
+    comparisons.splice(i, 1);
+    renderComparisons();
+    updateAddBtn();
+  };
+
+  // ===================== Build legend items =====================
+  function makeItem(name, share, color, dim) {
+    var el = document.createElement('span');
+    el.className = 'legend-item';
+    el.dataset.dim = dim;
+    el.dataset.val = name;
+    var shareStr = (share!==null&&share!==undefined) ? share+'%' : '-';
+    el.innerHTML = '<span class="legend-dot" style="background:'+color+'"></span><span class="legend-txt">'+name+'</span> <span class="legend-pct">'+shareStr+'</span>';
+    legendEls[dim][name] = el;
+    el.addEventListener('click', function(){
+      if (selected[dim].has(name)) {
+        selected[dim].delete(name);
+        if (selected[dim].size === 0) applyFilter(); // check before calling
+      } else {
+        selected[dim].add(name);
+      }
+      updateLegendUI();
+      applyFilter();
+    });
+    el.addEventListener('mouseenter', function(){
+      // Highlight matching data
+      allSeries.forEach(function(s){
+        s.data.forEach(function(d){
+          var match = (dim==='salt'&&d.salt===name)||(dim==='brand'&&d.brand===name)||
+                      (dim==='shop'&&d.shop===name)||(dim==='weight'&&d.weight===name);
+          if(match) d._hl=true;
+        });
+      });
+      var hlSeries = allSeries.map(function(s){
+        return {name:s.name, type:'scatter', data:s.data.filter(function(d){return d._hl;}).map(function(d){
+          var c=colors[d.salt]||'#888'; return makeDataPoint(d,c,true);
+        })};
+      });
+      // Use highlight action
+      allSeries.forEach(function(s){
+        var hasMatch = s.data.some(function(d){return d._hl;});
+        if(hasMatch) chart.dispatchAction({type:'highlight',seriesName:s.name});
+      });
+      // Reset
+      allSeries.forEach(function(s){ s.data.forEach(function(d){d._hl=false;}); });
+    });
+    el.addEventListener('mouseleave', function(){
+      chart.dispatchAction({type:'downplay'});
+    });
+    return el;
+  }
+
+  // Sort helpers
+  function byShareDesc(a,b){ return (saltShareMap[b]||0)-(saltShareMap[a]||0); }
+  function byBrandShareDesc(a,b){ return (brandShareMap[b]||0)-(brandShareMap[a]||0); }
+  function byShopShareDesc(a,b){ return (shopShareMap[b]||0)-(shopShareMap[a]||0); }
+  function byWeightShareDesc(a,b){ return (weightShareMap[b]||0)-(weightShareMap[a]||0); }
+
+  // Salt row (sorted by share desc)
+  var saltRow = document.getElementById('salt-row');
+  saltTypes.slice().sort(byShareDesc).forEach(function(st){
+    saltRow.appendChild(makeItem(st, saltShareMap[st], colors[st]||'#888', 'salt'));
+  });
+
+  // Brand row (all brands, sorted by share desc)
+  var brandRow = document.getElementById('brand-row');
+  allBrandNames.slice().sort(byBrandShareDesc).forEach(function(b){
+    brandRow.appendChild(makeItem(b, brandShareMap[b], '#bbb', 'brand'));
+  });
+
+  // Shop row (all shops)
+  var shopRow = document.getElementById('shop-row');
+  allShopNames.slice().sort(byShopShareDesc).forEach(function(sh){
+    shopRow.appendChild(makeItem(sh, shopShareMap[sh], '#bbb', 'shop'));
+  });
+
+  // Weight row (all weights)
+  var weightRow = document.getElementById('weight-row');
+  allWeightNames.slice().sort(byWeightShareDesc).forEach(function(w){
+    weightRow.appendChild(makeItem(w, weightShareMap[w], '#bbb', 'weight'));
+  });
+
+  // ===================== Select All =====================
+  window.selectAll = function(dim) {
+    selected[dim].clear();
+    updateLegendUI();
+    applyFilter();
+  };
+
+  function updateLegendUI() {
+    // Update all legend items
+    document.querySelectorAll('.legend-item').forEach(function(el){
+      var dim = el.dataset.dim;
+      var val = el.dataset.val;
+      el.classList.toggle('active', selected[dim].has(val));
+    });
+    // Update "全选" buttons
+    ['salt','brand','shop','weight'].forEach(function(dim){
+      var row = document.getElementById(dim+'-row');
+      var parent = row.parentElement.parentElement;
+      var allBtn = parent.querySelector('.legend-all');
+      if(allBtn) allBtn.classList.toggle('active', selected[dim].size===0);
+    });
+  }
+
+  // Initial arrow state
+  ['salt','brand','shop','weight'].forEach(function(r){ updateArrows(r); });
+  window.addEventListener('resize',function(){
+    chart.resize();
+    ['salt','brand','shop','weight'].forEach(function(r){ updateArrows(r); });
+  });
+  ['salt','brand','shop','weight'].forEach(function(r){
+    document.getElementById(r+'-wrap').addEventListener('wheel',function(e){
+      e.preventDefault();
+      scrollRow(r, e.deltaY > 0 ? 1 : -1);
+    });
+  });
+})();
+</script>
+</body>
+</html>
