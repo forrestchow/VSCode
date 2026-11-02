@@ -14,7 +14,7 @@
 
 ## 当前阶段
 
-**代码已写完，待实跑（Chrome 9223 启动后运行 `python collect.py`）**
+**生意参谋 `collect.py` 待实跑；万相台 `collect_alimama.py` 已实跑验证（2026-11-02）**
 
 ## 计划
 
@@ -25,6 +25,7 @@
 | **阶段 2 · Token + 接口调用** | 🟡 代码完成，待实跑 | 每个账号 GET 自己页面 HTML → 解析 `meta[microdata]` 的 `legalityToken`；token 按「账号 + 页面」缓存，不跨账号；`code=0` 成功，`1100` 跳过，`1003` 记日志，401/403 判登录失效 | `sycm_api.py`（新建） |
 | 阶段 3 · 批量采集主流程 | 🟡 代码完成，待实跑 | 账号 → 商品 → 日期 → 接口，四层串行；请求间隔 1~3 秒；单账号失败不影响其他；第一版只跑 5 个已验证接口 | `collect.py`（新建） |
 | 阶段 4 · 配置与保存 | 🟡 代码完成，待实跑 | `config.json` 配商品 / 日期 / 账号 / 接口开关；参数合并 = 公共参数 + 接口默认值 + config 覆盖；保存到 `data/{店铺}_{loginUserId}/{日期}/{商品ID}/{接口}.json`；结束打印成功/失败汇总 | `config.json`（新建）、`collect.py` |
+| 阶段 5 · 万相台无界版 | ✅ 100% | `Storage.getCookies` → `checkAccess` 取 csrfId → 总览 / 分时 / 计划列表；`--full-day` 切换历史总览全天口径；察尔汗 2026-11-01、11-02 实跑通过 | `alimama_api.py`、`collect_alimama.py`、`alimama_config.json`、`endpoints.json` |
 
 ## 第一版范围
 
@@ -37,13 +38,16 @@
 
 ```text
 chrome电商数据获取脚本/
-├─ collect.py               # 主入口 + 批量采集 + 保存
-├─ sycm_api.py              # token、请求头、GET JSON、返回码处理
-├─ config.json              # 商品 / 日期 / 账号 / 接口配置
-├─ endpoints.json           # 接口模板（已有）
+├─ collect.py               # 生意参谋主入口 + 批量采集 + 保存
+├─ sycm_api.py              # 生意参谋 token、请求头、GET JSON、返回码处理
+├─ config.json              # 生意参谋：商品 / 日期 / 账号 / 接口配置
+├─ collect_alimama.py       # 万相台主入口：总览 / 分时 / 计划列表
+├─ alimama_api.py           # 万相台 checkAccess(csrfId)、报表、计划列表
+├─ alimama_config.json      # 万相台：端口 / 账号 / 日期 / 输出目录
+├─ endpoints.json           # 接口模板（含 alimama 段）
 ├─ list_browser_profiles.py # CDP / 账号 / Cookie（已有，直接复用）
 ├─ PLAN.md                  # 本文件
-└─ data/                    # 运行后生成
+└─ data/                    # 运行后生成（data/alimama 为万相台）
 ```
 
 ## 进度记录
@@ -53,3 +57,6 @@ chrome电商数据获取脚本/
 - 2026-11-02：新增 `CLAUDE.md`（项目架构、常用命令、文档同步规则）；本文件自此作为进度唯一记录。
 - 2026-11-02：在 `01-无tab获取框架.md` 明确「抓包是获得接口的备选方案」：首选 performance + bundle grep，静态分析失败才后台 tab 抓 Network；抓到后写入 `endpoints.json`，日常采集不再抓包。
 - 2026-11-02：新增用户级 `dom-locating` Skill（含失败闭环、案例库、changelog）；在 `CLAUDE.md` 加入 DOM 定位指针和 sycm 登录页选择器。
+- 2026-11-02：新增万相台无界版采集：`alimama_api.py`、`collect_alimama.py`、`alimama_config.json`；接口模板写入 `endpoints.json` 的 `alimama` 段；`02-URL与接口映射.md` 新增第 9 节；`README.md` / `CLAUDE.md` 同步。
+- 2026-11-02：万相台实跑察尔汗 2026-11-02 / 2026-11-01，6 次调用全部成功；历史总览默认页面口径（11-01 为 77.06，截至当前小时），`--full-day` 返回全天 122.33。
+- 2026-11-02：`dom-locating` Skill 由用户级迁移为项目级 `.claude/skills/dom-locating`，CLAUDE.md 指针同步；原用户级目录已送回收站。

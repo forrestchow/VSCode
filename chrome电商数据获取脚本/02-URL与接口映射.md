@@ -176,3 +176,55 @@ GET /flow/qzt/item/crowdtype/source/trend.json?itemId=731918476865&dateType=day&
 
 `activeKey=service` / `customer` / `content` 的接口尚未验证。定位方法见
 [03-快速定位接口.md](03-快速定位接口.md)，按同样的流程即可补全。
+
+## 9. 万相台无界版（one.alimama.com）关键词推广
+
+> 第 1–8 节是生意参谋；本节是万相台。两套脚本独立：`collect.py` / `collect_alimama.py`。
+
+### 9.1 无 tab 取数链路
+
+```text
+CDP Storage.getCookies（浏览器级，不开 tab、不导航）
+  → POST /member/checkAccess.json（此接口不需要 csrfId）
+       返回 data.meta.nickName / memberId
+            data.accessInfo.csrfId
+            data.loginPointId
+  → POST /report/query.json?csrfId=...&bizCode=onebpSearch            总览 / 分时
+  → POST /campaign/horizontal/findPage.json?csrfId=...&bizCode=onebpSearch
+       计划列表 + reportInfoList 指标
+```
+
+关键点：`csrfId` **不在** Cookie、localStorage 或页面 HTML 里，只能由 `checkAccess` 获取；
+该接口本身不校验 csrf，所以整条链路不需要打开页面。
+
+### 9.2 接口表
+
+| 接口 | 用途 | 关键参数 | 状态 |
+|---|---|---|---|
+| `POST /member/checkAccess.json` | 账号识别 + 获取 csrfId / loginPointId | query `bizCode=universalBP`；body `{"bizCode":"universalBP"}` | ✅ 已验证 |
+| `POST /report/query.json` | 总览 / 分时报表 | `startTime`, `endTime`, `sourceList=["scene"]`, `queryFieldIn`, `splitType=sum/hour`, `fromRealTime`, `allDay`, `queryDomains` | ✅ 已验证 |
+| `POST /campaign/horizontal/findPage.json` | 计划列表 + 指标 | `offset`, `pageSize`, `rptQuery.fields`, `rptQuery.conditionList[]` | ✅ 已验证 |
+| `POST /adgroup/horizontal/findPage.json` | 单元列表 | `offset`, `pageSize`, `statusList` | ⚠️ 抓包确认，未直接调用 |
+| `POST /campaign/search/totalConvCampaignPage.json` | 全站推广计划 | 抓包确认 | ⚠️ 抓包确认，未直接调用 |
+
+### 9.3 历史日期的统计口径
+
+历史日期的总览默认 `fromHourTable=true, allDay=false`，与页面卡片一致，是**截至当前小时**的口径：
+
+| 日期 | 页面总览（截至当前小时） | 全天合计（分时求和 / 计划求和） |
+|---|---:|---:|
+| 2026-11-01 | 77.06 | 122.33 |
+
+分时报表和计划列表返回的是**全天**数据。需要全天总览时使用：
+
+```bash
+python collect_alimama.py --date 2026-11-01 --full-day
+```
+
+### 9.4 错误处理
+
+| 现象 | 含义 | 处理 |
+|---|---|---|
+| HTTP 403 | csrfId 缺失或过期 | 重新 `checkAccess` 拿新 csrfId；`collect_alimama.py` 会自动重试一次 |
+| `checkAccess` 无 `csrfId` | Cookie 过期 / 未登录万相台 | 在对应 Chrome profile 重新登录 |
+| 返回 HTML | 登录态失效 | 同上 |

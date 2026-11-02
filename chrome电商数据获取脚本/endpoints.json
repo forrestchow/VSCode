@@ -212,6 +212,104 @@
       }
     }
   },
+  "alimama": {
+    "_comment": "万相台无界版（one.alimama.com）关键词推广接口。csrfId / loginPointId 来自 POST /member/checkAccess.json（该接口本身不需要 csrf）。",
+    "common": {
+      "base": "https://one.alimama.com",
+      "auth_flow": "Cookie → POST /member/checkAccess.json → data.accessInfo.csrfId + data.loginPointId → 后续接口",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://one.alimama.com",
+        "Referer": "https://one.alimama.com/index.html",
+        "Content-Type": "application/json;charset=UTF-8",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      "query": "后续接口统一带 ?csrfId={csrfId}&bizCode=onebpSearch"
+    },
+    "pages": {
+      "#!/manage/search": {
+        "name": "关键词推广",
+        "endpoints": {
+          "check_access": {
+            "url": "/member/checkAccess.json",
+            "method": "POST",
+            "query": "?bizCode=universalBP",
+            "body": {
+              "bizCode": "universalBP"
+            },
+            "returns": "data.meta.nickName / memberId；data.accessInfo.csrfId；data.loginPointId",
+            "status": "已验证",
+            "note": "不需要 csrfId，是不打开页面取数的入口"
+          },
+          "report_query": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "body": {
+              "bizCode": "onebpSearch",
+              "mx_bizCode": "onebpSearch",
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "sourceList": ["scene"],
+              "queryFieldIn": "见 alimama_api.REPORT_FIELDS",
+              "fromRealTime": "今天 true / 历史 false",
+              "splitType": "sum（总览）| hour（分时）",
+              "queryDomains": "splitType=hour 时为 [date]",
+              "allDay": "历史 sum 默认 false（页面口径：截至当前小时）；--full-day 时 true"
+            },
+            "status": "已验证"
+          },
+          "campaign_list": {
+            "url": "/campaign/horizontal/findPage.json",
+            "method": "POST",
+            "body": {
+              "offset": 0,
+              "pageSize": 40,
+              "orderField": "",
+              "orderBy": "",
+              "rptQuery": {
+                "fields": "adPv,click,charge,ecpc,cvr,alipayInshopCost,roi,alipayInshopAmt,alipayInshopNum,ctr,cartInshopNum,cartCost",
+                "conditionList": [
+                  {
+                    "sourceList": ["scene", "campaign_list"],
+                    "startTime": "YYYY-MM-DD",
+                    "endTime": "YYYY-MM-DD",
+                    "isRt": "今天 true / 历史 false"
+                  }
+                ]
+              }
+            },
+            "returns": "data.count + data.list；每个计划带 reportInfoList 指标",
+            "status": "已验证"
+          },
+          "adgroup_list": {
+            "url": "/adgroup/horizontal/findPage.json",
+            "method": "POST",
+            "body": {
+              "offset": 0,
+              "pageSize": 20,
+              "statusList": ["start", "pause"]
+            },
+            "status": "抓包确认，未直接调用"
+          },
+          "total_conv_campaign": {
+            "url": "/campaign/search/totalConvCampaignPage.json",
+            "method": "POST",
+            "status": "抓包确认，未直接调用"
+          }
+        }
+      }
+    },
+    "parameter_notes": {
+      "csrfId": "checkAccess 返回的会话级 token；缺失或过期时接口返回 HTTP 403",
+      "loginPointId": "同一次 checkAccess 返回，可随 body 一起传",
+      "startTime / endTime": "YYYY-MM-DD；单日 start=end",
+      "fromRealTime": "查询今天时 true；历史日期 false",
+      "fromHourTable": "历史日期固定 true",
+      "allDay": "历史分时 query 用 true；历史总览默认 false（截至当前小时），--full-day 改 true",
+      "queryDomains": "分时查询传 [date]",
+      "sourceList": "总览 [scene]；计划列表条件 [scene, campaign_list]"
+    }
+  },
   "parameter_notes": {
     "itemId": "商品 ID",
     "dateType": "day / today / week / month 等",

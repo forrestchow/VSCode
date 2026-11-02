@@ -1,6 +1,11 @@
 # Chrome 电商数据获取脚本
 
-目标：**不打开 tab、不渲染 DOM**，用已登录 Chrome 的 Cookie + 页面 HTML 里的 token，直接调用生意参谋的 JSON 接口取数。
+目标：**不打开 tab、不渲染 DOM**，用已登录 Chrome 的 Cookie + 页面 HTML 里的 token（或接口返回的 csrfId），直接调用电商后台的 JSON 接口取数。
+
+当前覆盖两套后台：
+
+- 生意参谋（sycm.taobao.com）→ `collect.py`
+- 万相台无界版（one.alimama.com）关键词推广 → `collect_alimama.py`
 
 ## 核心结论
 
@@ -14,6 +19,7 @@
 5. 不需要后台 tab；后台 tab 只作为静态分析失败时的兜底。
 6. 同一个 bundle 里可能有多个 tab 的卡片；判断归属看代码里的“更多”链接指向哪个 `activeKey`。
 7. 页面 URL 里的 `dateType` / `dateRange` 要传给接口；`_` 只是防缓存时间戳，不是数据时间。
+8. 万相台的 `csrfId` 不在 Cookie / localStorage / HTML 里，而是由 `POST /member/checkAccess.json` 返回；该接口本身不需要 csrf，所以整条链路同样不需要打开页面。
 
 ## 目录
 
@@ -27,8 +33,11 @@
 | [endpoints.json](endpoints.json) | 接口清单（占位符版本，可直接改造成配置） |
 | [list_browser_profiles.py](list_browser_profiles.py) | 列出当前 browser context、页面、账号 |
 | [sycm_api.py](sycm_api.py) | HTTP 层：Cookie、token、接口请求、返回码处理 |
-| [collect.py](collect.py) | 主入口：多账号批量取数并保存 JSON |
-| [config.json](config.json) | 采集配置：商品、日期、账号、接口开关 |
+| [collect.py](collect.py) | 生意参谋主入口：多账号批量取数并保存 JSON |
+| [config.json](config.json) | 生意参谋采集配置：商品、日期、账号、接口开关 |
+| [alimama_api.py](alimama_api.py) | 万相台 HTTP 层：Cookie、checkAccess(csrfId)、报表、计划列表 |
+| [collect_alimama.py](collect_alimama.py) | 万相台主入口：总览 / 分时 / 计划列表 |
+| [alimama_config.json](alimama_config.json) | 万相台采集配置：端口、账号、日期、输出目录 |
 | [PLAN.md](PLAN.md) | 开发计划与当前进度 |
 
 ## 快速开始（3 步）
@@ -64,6 +73,29 @@ python collect.py --endpoint sale_overview,flow_top
 ```
 
 输出在 `data/{店铺}_{loginUserId}/{日期}/{商品ID}/{接口}.json`，每次运行的汇总在 `data/_run_*.json`。
+
+## 运行万相台采集
+
+1. 对应店铺的 Chrome 以 debug 端口启动并已登录万相台（端口见 `alimama_config.json`，默认 9222）。
+2. 运行：
+
+```bash
+python collect_alimama.py                                  # 今天，当前 profile 账号
+python collect_alimama.py --date 2026-11-02,2026-11-01
+python collect_alimama.py --days 7                         # 最近 7 天（含今天）
+python collect_alimama.py --account 察尔汗 --full-day
+python collect_alimama.py --no-hourly --no-campaigns
+```
+
+输出在 `data/alimama/{店铺}_{memberId}/{日期}/`：
+
+| 文件 | 内容 |
+|---|---|
+| `overview.json` | 总览指标（消耗、点击、成交、ROI 等） |
+| `hourly.json` | 分时报表 |
+| `campaigns.json` | 计划列表 + 每个计划的 `reportInfoList` |
+
+说明：历史日期的 `overview.json` 默认与页面一致，是「截至当前小时」口径；需要全天合计加 `--full-day`。`hourly.json` 和 `campaigns.json` 始终是全天数据。
 
 ## 多账号 / 多 profile
 
@@ -111,6 +143,7 @@ python list_browser_profiles.py
 ## 一句话流程
 
 ```text
+生意参谋：
 Chrome Cookie（CDP 读，不开 tab）
         +
 HTML 里的 legalityToken（HTTP GET，不开 tab）
@@ -118,4 +151,11 @@ HTML 里的 legalityToken（HTTP GET，不开 tab）
 静态 JS 里找到的接口模板（performance → bundle → grep）
         ↓
 直接 HTTP GET JSON
+
+万相台：
+Chrome Cookie（CDP 读，不开 tab）
+        +
+POST /member/checkAccess.json 返回的 csrfId / loginPointId
+        ↓
+直接 HTTP POST JSON（report/query、campaign/horizontal/findPage）
 ```

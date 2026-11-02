@@ -14,7 +14,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目定位
 
-不开 tab、不渲染 DOM：用已登录 Chrome 的 Cookie + 页面 HTML 里的 `legalityToken`，直接 HTTP 调用生意参谋（sycm.taobao.com）的 JSON 接口。主力路线是 Python HTTP（`collect.py`），页面内 `fetch` 只是备选方案。
+不开 tab、不渲染 DOM：用已登录 Chrome 的 Cookie + 鉴权 token，直接 HTTP 调用电商后台的 JSON 接口。主力路线是 Python HTTP。
+
+- 生意参谋（sycm.taobao.com）：`legalityToken` 来自页面 HTML → `collect.py` / `sycm_api.py`
+- 万相台无界版（one.alimama.com）：`csrfId` 来自 `POST /member/checkAccess.json` → `collect_alimama.py` / `alimama_api.py`
+
+页面内 `fetch` 只是备选方案。
 
 ## DOM 定位
 
@@ -33,13 +38,21 @@ python list_browser_profiles.py                  # 列出 context / 账号 / Coo
 python list_browser_profiles.py --json
 python list_browser_profiles.py --profile-path   # 额外开临时后台页读 chrome://version
 
-python collect.py                                # 按 config.json 采集
+python collect.py                                # 按 config.json 采集（生意参谋）
 python collect.py --account 察尔汗
 python collect.py --item 731918476865 --date 2026-11-01
 python collect.py --endpoint sale_overview,flow_top
 python collect.py --output data_test --delay 2-5
 
-python -m py_compile collect.py sycm_api.py list_browser_profiles.py   # 语法检查
+# 万相台（默认端口 9222，Chrome 已登录万相台）
+python collect_alimama.py                        # 今天：总览 + 分时 + 计划
+python collect_alimama.py --date 2026-11-02,2026-11-01
+python collect_alimama.py --days 7
+python collect_alimama.py --full-day             # 历史日期总览用全天口径
+python collect_alimama.py --no-hourly --no-campaigns
+
+python -m py_compile collect.py sycm_api.py list_browser_profiles.py
+python -m py_compile collect_alimama.py alimama_api.py
 ```
 
 项目没有测试套件。改动后用 `python -m py_compile ...` 和 `python collect.py --help` 做冒烟检查；条件允许时连接真实 Chrome 实跑一个接口。
@@ -72,9 +85,16 @@ python -m py_compile collect.py sycm_api.py list_browser_profiles.py   # 语法�
 - token 缓存键为 `(account.key, page_key)`，账号间绝不共享；遇到 `AuthError` 清缓存重取 token 并重试一次
 - 保存 `data/{店铺}_{loginUserId}/{日期}/{商品ID}/{接口}.json`，每次运行的汇总写入 `data/_run_*.json`
 
+### 4. 万相台链路（独立于生意参谋）
+
+- `alimama_api.py`：纯 HTTP 层。Cookie 头优先 alimama 域；`check_access()` 调 `POST /member/checkAccess.json`（不需要 csrf）拿 `csrfId`、`loginPointId`、`memberId`；`report_query()` 取总览/分时；`campaign_find_page()` 取计划列表（`rptQuery` 带指标）
+- `collect_alimama.py`：编排层。浏览器级 `Storage.getCookies`（不开 tab）→ `check_access` → 按日期串行取 overview / hourly / campaigns → 保存 `data/alimama/{店铺}_{memberId}/{日期}/`
+- `csrfId` 过期（HTTP 403）时自动重新 `checkAccess` 并重试一次
+- 历史日期总览默认 `allDay=false`（与页面一致：截至当前小时）；`--full-day` 改为全天口径。分时与计划始终全天
+
 ## 配置与接口模板
 
-**`endpoints.json` 是接口模板的唯一事实来源**，结构为 `pages[页面URL].endpoints[接口名] = {url, params, status}`。
+**`endpoints.json` 是接口模板的唯一事实来源**。生意参谋使用 `pages[页面URL].endpoints[接口名] = {url, params, status}`；万相台使用 `alimama.pages[#!/manage/search].endpoints`，并在 `alimama.common` 记录 checkAccess 鉴权链路。
 
 - `params` 是字符串数组：`"itemId"` 表示参数名；`"device=0"` 表示参数带默认值
 - `status` 取值：`已验证` / `代码确认` / `部分验证` / `未验证`；接口状态变化时同步更新 `02-URL与接口映射.md`
@@ -87,6 +107,8 @@ python -m py_compile collect.py sycm_api.py list_browser_profiles.py   # 语法�
 - Cookie、token、权限按账号隔离：不能拿 A 账号的 token 配 B 账号的 Cookie；同一商品在不同账号下可能返回 `1100`
 - `_` 是防缓存毫秒时间戳，不是数据时间；`dateRange=start|end`（URL 编码为 `%7C`）；`dateType=today` 使用 realtime 版接口
 - 正常取数不创建 tab；只有 `--profile-path` 和接口探测兜底会开后台页
+- 万相台 `csrfId` 不在 Cookie / localStorage / HTML 里，必须从 `checkAccess` 拿；该接口不需要 csrf，所以不需要先打开页面
+- 万相台历史总览默认是页面口径（截至当前小时），`--full-day` 才是全天；报数时先确认用哪个口径
 - 找新接口的顺序：已开页面 `performance` 资源列表 → 下载 `op-cc/app.js`、`65.js` → grep `.json` → 从代码上下文确认参数。不要猜 `index.js`，不要扫 Chrome 缓存（详见 `03-快速定位接口.md`）
 - Windows 下入口脚本统一 `reconfigure(encoding="utf-8", errors="replace")`，新增入口脚本沿用
 

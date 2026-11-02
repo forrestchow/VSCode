@@ -1,0 +1,12 @@
+{
+  "_comment": "万相台无界版（one.alimama.com）关键词推广采集配置。port 为对应店铺 Chrome 的 debug 端口；accounts 为空=当前 profile 账号；dates 为空=今天。",
+  "port": 9222,
+  "accounts": [],
+  "dates": [],
+  "campaignPageSize": 40,
+  "delay": [
+    1,
+    3
+  ],
+  "outputDir": "data/alimama"
+}
