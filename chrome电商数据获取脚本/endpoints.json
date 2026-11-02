@@ -1,0 +1,229 @@
+{
+  "_comment": "生意参谋接口模板（占位符版本）。{token} 从页面 HTML 的 meta[microdata] 解析，{ts} 为毫秒时间戳。",
+  "common": {
+    "base": "https://sycm.taobao.com",
+    "token_source": "HTML <meta name=\"microdata\"> 的 legalityToken 字段",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "Origin": "https://sycm.taobao.com",
+      "x-requested-with": "XMLHttpRequest",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Dest": "empty"
+    }
+  },
+  "time_handling": {
+    "dateType": "day / today / week / month",
+    "dateRange": "start|end，URL 编码为 %7C；单日 start=end",
+    "underscore": "毫秒时间戳，防缓存，不是数据时间",
+    "trend": "dateRange 决定结束日，响应返回往前 30 天",
+    "realtime": "dateType=today，并使用 realtime 版本的 URL",
+    "non_time_endpoints": [
+      "/cc/item/getItemCrowds.json",
+      "/cc/item/skuAttr.json",
+      "/cc/item/stock/isOff.json",
+      "/cc/supersku/verify.json",
+      "/cc/common/batch/commDate.json"
+    ]
+  },
+  "pages": {
+    "/cc/item_rank": {
+      "name": "商品排行",
+      "endpoints": {
+        "item_rank": {
+          "url": "/cc/item/view/top.json",
+          "params": ["itemId", "dateType", "dateRange", "page", "pageSize", "order", "orderBy", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "item_rank_realtime": {
+          "url": "/cc/item/live/view/top.json",
+          "params": ["itemId", "dateType=today", "page", "pageSize", "order", "orderBy", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "item_focus": {
+          "url": "/cc/item/view/foucs.json",
+          "params": ["itemId", "dateType", "dateRange", "page", "pageSize", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "item_focus_realtime": {
+          "url": "/cc/item/view/foucs/live.json",
+          "params": ["itemId", "dateType=today", "page", "pageSize", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "view_angle": {
+          "url": "/cc/item/view/angle/select.json",
+          "params": ["token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "price_activity": {
+          "url": "/cc/item/price/hasPriceAct.json",
+          "params": ["itemId", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "price_trend_live": {
+          "url": "/cc/item/price/analysis/trend/live.json",
+          "params": ["itemId", "token", "_"],
+          "status": "代码确认，未逐个调用"
+        },
+        "sku_top": {
+          "url": "/cc/item/sku/top.json",
+          "params": ["itemId", "pageSize", "dateType", "dateRange", "token", "_"],
+          "status": "已验证",
+          "note": "Top5 SKU销售摘要卡；代码中“更多”链接指向 activeKey=sale，不属于 flow"
+        },
+        "searchword_top": {
+          "url": "/cc/item/searchword/top/v3.json",
+          "params": ["itemId", "page", "pageSize", "dateType", "dateRange", "token", "_"],
+          "status": "已验证"
+        }
+      }
+    },
+    "/cc/item_archives?activeKey=sale": {
+      "name": "商品360 · 销售",
+      "endpoints": {
+        "sale_overview": {
+          "url": "/cc/item/sale/overview.json",
+          "params": ["itemId", "dateType", "dateRange", "device=0", "token", "_"],
+          "status": "已验证"
+        },
+        "sale_sku_list": {
+          "url": "/cc/item/sale/sku/list.json",
+          "params": ["itemId", "dateType", "dateRange", "device=0", "pageSize", "page", "order", "orderBy", "indexCode", "token", "_"],
+          "status": "已验证",
+          "note": "销售 tab 的完整 SKU 明细；Top5 摘要卡是 /cc/item/sku/top.json"
+        },
+        "sale_trend": {
+          "url": "/cc/item/sale/trend.json",
+          "params": ["itemId", "dateType", "dateRange", "device=0", "indexCode", "token", "_"],
+          "status": "已验证"
+        },
+        "crowd_info": {
+          "url": "/cc/item/crowd/info.json",
+          "params": ["itemId", "dateType", "dateRange", "token", "_"],
+          "status": "已验证"
+        },
+        "get_item_crowds": {
+          "url": "/cc/item/getItemCrowds.json",
+          "params": ["itemId", "token", "_"],
+          "status": "已验证"
+        },
+        "activity_trend": {
+          "url": "/cc/item/activity/trend.json",
+          "params": ["itemId", "dateType", "dateRange", "actionType=basic_op,ct_op", "token", "_"],
+          "status": "已验证（当前为空）"
+        },
+        "new_product_check": {
+          "url": "/cc/item/new/product/check.json",
+          "params": ["itemId", "token", "_"],
+          "status": "已验证"
+        },
+        "property_suggestions": {
+          "url": "/cc/item/property/suggestions.json",
+          "params": ["itemId", "token", "_"],
+          "status": "已验证（当前为空）"
+        },
+        "sku_attr": {
+          "url": "/cc/item/skuAttr.json",
+          "params": ["itemId", "token", "_"],
+          "status": "已验证"
+        },
+        "stock_is_off": {
+          "url": "/cc/item/stock/isOff.json",
+          "params": ["token", "_"],
+          "status": "已验证"
+        },
+        "supersku_verify": {
+          "url": "/cc/supersku/verify.json",
+          "params": ["itemIdList", "token", "_"],
+          "status": "已验证"
+        },
+        "item_diagnosis": {
+          "url": "/ai/one/mama/item/diagnosis.json",
+          "params": ["type=shop", "recordList", "channelKeys=sycm_item_360_zbzdcl", "token", "_"],
+          "status": "已验证（当前为空）"
+        },
+        "price_warn": {
+          "url": "/portal/risk/priceUpControl/queryItemWarnInfo.json",
+          "params": ["itemIds", "_"],
+          "status": "已验证（当前为空）"
+        },
+        "comm_date": {
+          "url": "/cc/common/batch/commDate.json",
+          "params": ["tab=service,flow,sale,customer,content", "token", "_"],
+          "status": "已验证"
+        },
+        "compete_whitelist": {
+          "url": "/cc/category/compete/checkWhiteList.json",
+          "params": ["token", "_"],
+          "status": "已验证"
+        }
+      }
+    },
+    "/cc/item_archives?activeKey=flow": {
+      "name": "商品360 · 流量",
+      "endpoints": {
+        "flow_top": {
+          "url": "/cc/item/flow/top/v4.json",
+          "params": ["itemId", "page=1", "pageSize=10", "dateType", "dateRange", "token", "_"],
+          "status": "已验证",
+          "note": "Top10流量来源摘要卡；代码中“更多”链接指向 activeKey=flow"
+        },
+        "flow_top_realtime": {
+          "url": "/cc/item/flow/realtime/top/v4.json",
+          "params": ["itemId", "page=1", "pageSize=10", "dateType=today", "token", "_"],
+          "status": "代码确认"
+        },
+        "searchword_top": {
+          "url": "/cc/item/searchword/top/v3.json",
+          "params": ["itemId", "page=1", "pageSize=10", "dateType", "dateRange", "token", "_"],
+          "status": "已验证",
+          "note": "Top10搜索词摘要卡；代码中“更多”链接指向 activeKey=flow"
+        },
+        "source_trend": {
+          "url": "/flow/qzt/item/crowdtype/source/trend.json",
+          "params": ["itemId", "dateType", "dateRange", "device=2", "flowBizType=classic", "belong=all", "pageId", "pPageId", "pageName", "pageLevel", "childPageType", "token", "_"],
+          "status": "已验证"
+        },
+        "events_list": {
+          "url": "/flow/new/events/list.json",
+          "params": ["itemId", "dateType", "dateRange", "token", "_"],
+          "status": "已验证（当前为空）"
+        },
+        "source_detail_security": {
+          "url": "/flow/v4/item/source/cc/security.json",
+          "params": ["itemId", "dateType", "dateRange", "device=2", "belong=all", "order=desc", "orderBy=uv", "page=1", "pageSize=10", "token", "_"],
+          "status": "部分验证（还需 pageId/pPageId 等参数）"
+        },
+        "source_detail_crowdtype": {
+          "url": "/flow/v6/item/crowdtype/source.json",
+          "params": ["itemId", "dateType", "dateRange", "device=2", "belong=all", "flowBizType=classic", "order=desc", "orderBy=uv", "page=1", "pageSize=10", "token", "_"],
+          "status": "部分验证（还需 crowdType 等参数）"
+        },
+        "source_detail_live": {
+          "url": "/flow/v4/live/item/source/cc.json",
+          "params": ["itemId", "dateType=today", "device=2", "belong=all", "token", "_"],
+          "status": "代码确认"
+        },
+        "competitor_detail": {
+          "url": "/flow/v3/new/item/source/competitor/v3/security.json",
+          "params": ["itemId", "dateType", "dateRange", "device=2", "belong=all", "pageId", "pPageId", "pageName", "token", "_"],
+          "status": "代码确认"
+        }
+      }
+    }
+  },
+  "parameter_notes": {
+    "itemId": "商品 ID",
+    "dateType": "day / today / week / month 等",
+    "dateRange": "YYYY-MM-DD|YYYY-MM-DD，URL 编码后为 %7C",
+    "device": "0=全部，1/2=具体设备（部分接口只接受 1 或 2）",
+    "belong": "来源归属，流量来源表通常为 all",
+    "order": "desc / asc",
+    "orderBy": "排序字段，如 uv、pv",
+    "indexCode": "指标列表，逗号分隔，如 cartCnt,payAmt,payByrCnt",
+    "page": "页码",
+    "pageSize": "每页条数",
+    "token": "HTML meta microdata 的 legalityToken",
+    "_": "毫秒时间戳，防缓存"
+  }
+}

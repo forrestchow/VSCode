@@ -1,0 +1,57 @@
+{
+  "_comment": "accounts 为空=全部账号；items 是商品 ID；dates 是 YYYY-MM-DD；endpoints 可以只写接口名，也可以写 page+name+params。",
+  "port": 9223,
+  "accounts": [],
+  "items": [
+    "731918476865"
+  ],
+  "dates": [
+    "2026-11-01"
+  ],
+  "dateType": "day",
+  "endpoints": [
+    {
+      "page": "/cc/item_archives?activeKey=sale",
+      "name": "sale_overview"
+    },
+    {
+      "page": "/cc/item_archives?activeKey=sale",
+      "name": "sale_sku_list",
+      "params": {
+        "page": 1,
+        "pageSize": 10,
+        "order": "desc",
+        "orderBy": "cartCnt",
+        "indexCode": "cartCnt,payAmt,payByrCnt"
+      }
+    },
+    {
+      "page": "/cc/item_archives?activeKey=sale",
+      "name": "sale_trend",
+      "params": {
+        "indexCode": "itmUv"
+      }
+    },
+    {
+      "page": "/cc/item_archives?activeKey=flow",
+      "name": "flow_top",
+      "params": {
+        "page": 1,
+        "pageSize": 10
+      }
+    },
+    {
+      "page": "/cc/item_archives?activeKey=flow",
+      "name": "searchword_top",
+      "params": {
+        "page": 1,
+        "pageSize": 10
+      }
+    }
+  ],
+  "delay": [
+    1,
+    3
+  ],
+  "outputDir": "data"
+}
