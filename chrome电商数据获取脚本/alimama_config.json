@@ -4,6 +4,10 @@
   "accounts": [],
   "dates": [],
   "campaignPageSize": 40,
+  "reportPageSize": 100,
+  "reports": [
+    "item_promotion"
+  ],
   "delay": [
     1,
     3

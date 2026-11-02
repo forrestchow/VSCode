@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 更新「当前阶段」和计划表中的进度 / 状态
 - 在「进度记录」末尾追加一条带日期的说明
 - 若涉及接口，同步更新 `endpoints.json` 的 `status` 字段和 `02-URL与接口映射.md` 的状态标记
+- **接口优先登记**：任何新接口或接口变更（静态分析、抓包、实测得到）必须在同一时间立即写入 `02-URL与接口映射.md` 第 1 节「接口总表」，按 `分类 | URL | 接口 | 关键词参数` 四列登记；分类未定的先留空，不要因为分类未确认而延迟登记。同时更新 `endpoints.json` 的对应条目。
 
 `PLAN.md` 是本项目进度的唯一记录，不要只在对话里说明完成情况。
 
@@ -50,6 +51,10 @@ python collect_alimama.py --date 2026-11-02,2026-11-01
 python collect_alimama.py --days 7
 python collect_alimama.py --full-day             # 历史日期总览用全天口径
 python collect_alimama.py --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion --date 2026-11-02
+python collect_alimama.py --reports item_promotion_campaign --date 2026-11-01 --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion_adgroup --date 2026-11-01 --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion,campaign,adgroup,creative,crowd,bidword,area --date 2026-11-01 --no-hourly --no-campaigns
 
 python -m py_compile collect.py sycm_api.py list_browser_profiles.py
 python -m py_compile collect_alimama.py alimama_api.py
@@ -87,8 +92,8 @@ python -m py_compile collect_alimama.py alimama_api.py
 
 ### 4. 万相台链路（独立于生意参谋）
 
-- `alimama_api.py`：纯 HTTP 层。Cookie 头优先 alimama 域；`check_access()` 调 `POST /member/checkAccess.json`（不需要 csrf）拿 `csrfId`、`loginPointId`、`memberId`；`report_query()` 取总览/分时；`campaign_find_page()` 取计划列表（`rptQuery` 带指标）
-- `collect_alimama.py`：编排层。浏览器级 `Storage.getCookies`（不开 tab）→ `check_access` → 按日期串行取 overview / hourly / campaigns → 保存 `data/alimama/{店铺}_{memberId}/{日期}/`
+- `alimama_api.py`：纯 HTTP 层。Cookie 头优先 alimama 域；`check_access()` 调 `POST /member/checkAccess.json`（不需要 csrf）拿 `csrfId`、`loginPointId`、`memberId`；`report_query()` 取总览/分时；`campaign_find_page()` 取计划列表（`rptQuery` 带指标）；`report_list()` 取报表页列表（`REPORT_LIST_SPECS` 覆盖 item_promotion/campaign/adgroup/creative/crowd/bidword/area，`offset` 分页）；`campaign_find_list()` 按场景列出在投/暂停计划；`adgroup_find_list()` / `adgroup_get()` / `adgroup_report_query()` / `adgroup_time_series()` 取计划下的单元列表、单元设置、单元指标与按日/小时明细
+- `collect_alimama.py`：编排层。浏览器级 `Storage.getCookies`（不开 tab）→ `check_access` → 按日期串行取 overview / hourly / campaigns / `--reports` 指定的报表页 → 保存 `data/alimama/{店铺}_{memberId}/{日期}/`
 - `csrfId` 过期（HTTP 403）时自动重新 `checkAccess` 并重试一次
 - 历史日期总览默认 `allDay=false`（与页面一致：截至当前小时）；`--full-day` 改为全天口径。分时与计划始终全天
 
@@ -109,6 +114,11 @@ python -m py_compile collect_alimama.py alimama_api.py
 - 正常取数不创建 tab；只有 `--profile-path` 和接口探测兜底会开后台页
 - 万相台 `csrfId` 不在 Cookie / localStorage / HTML 里，必须从 `checkAccess` 拿；该接口不需要 csrf，所以不需要先打开页面
 - 万相台历史总览默认是页面口径（截至当前小时），`--full-day` 才是全天；报数时先确认用哪个口径
+- 万相台报表页列表统一 `POST /report/query.json`，query 用 `bizCode=universalBP`；今天必须 `fromRealTime=true`（否则返回 0 行），`offset` 分页；各页差异见 `endpoints.json` 的 `alimama.report_pages`
+- 商品报表维度由 `queryDomains` 控制：商品 `["promotion"]` → 商品×计划 `["promotion","campaign"]` → 商品×计划×单元 `["promotion","campaign","adgroup"]`；对应 `--reports item_promotion` / `item_promotion_campaign` / `item_promotion_adgroup`
+- 单元页「推广解读」弹层数据来自 `POST /report/query.json` 的 `sourceList=["theme_campare"]`（趋势主题）与 `["theme_top_keyword"]`（Top 关键词）；`strategyBidwordIdIn` / `isAutoMatchedIn` 是词包参数，当前样本为 `[6]` / `[24]`，不同单元可能不同
+- 推广解读的「过去 7 天」= 最近 7 个完整日（不含今天）；Top 关键词接口每页最多 20 条，区间 `count>20` 时必须 `offset` 翻页，否则会误判数据不一致
+- 单元汇总/分时查今天必须 `fromRealTime=true`，否则返回空；小时明细用 `hourId`（0-23），接口只返回有数据的小时
 - 找新接口的顺序：已开页面 `performance` 资源列表 → 下载 `op-cc/app.js`、`65.js` → grep `.json` → 从代码上下文确认参数。不要猜 `index.js`，不要扫 Chrome 缓存（详见 `03-快速定位接口.md`）
 - Windows 下入口脚本统一 `reconfigure(encoding="utf-8", errors="replace")`，新增入口脚本沿用
 

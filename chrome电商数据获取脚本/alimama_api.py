@@ -37,6 +37,101 @@ CAMPAIGN_FIELDS = (
     "alipayInshopAmt,alipayInshopNum,ctr,cartInshopNum,cartCost"
 )
 
+ADGROUP_REPORT_FIELDS = [
+    "charge",
+    "alipayInshopAmt",
+    "roi",
+    "adPv",
+    "click",
+    "ctr",
+    "ecpc",
+    "cvr",
+    "alipayInshopNum",
+    "cartInshopNum",
+    "cartRate",
+    "alipayInshopCost",
+]
+
+# 报表页列表接口：同一个 POST /report/query.json，用 rptType + queryDomains 区分维度。
+REPORT_LIST_FIELDS = [
+    "adPv",
+    "click",
+    "charge",
+    "ctr",
+    "ecpc",
+    "alipayInshopAmt",
+    "alipayInshopNum",
+    "cvr",
+    "cartInshopNum",
+    "itemColInshopNum",
+    "shopColDirNum",
+    "colNum",
+    "itemColInshopCost",
+]
+
+# 各报表页的差异参数（抓包确认，2026-11-02）。rptType 同时是报表类型 key。
+REPORT_LIST_SPECS: dict[str, dict] = {
+    "item_promotion": {
+        "label": "商品报表",
+        "query_domains": ["promotion"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "item_promotion_campaign": {
+        "label": "商品报表（商品×计划）",
+        "rpt_type": "item_promotion",
+        "query_domains": ["promotion", "campaign"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "item_promotion_adgroup": {
+        "label": "商品报表（商品×计划×单元）",
+        "rpt_type": "item_promotion",
+        "query_domains": ["promotion", "campaign", "adgroup"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "campaign": {
+        "label": "计划报表",
+        "query_domains": ["campaign"],
+        "extra": {},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "adgroup": {
+        "label": "单元报表",
+        "query_domains": ["adgroup"],
+        "extra": {"bizCodeIn": ["onebpSearch"]},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "creative": {
+        "label": "创意报表",
+        "query_domains": ["creative", "promotion"],
+        "extra": {},
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "crowd": {
+        "label": "人群报表",
+        "query_domains": ["crowd"],
+        "extra": {
+            "filterAppendSubwayChannel": True,
+            "filterNullCrowdSubwayTag": True,
+        },
+        "fields": REPORT_LIST_FIELDS,
+    },
+    "bidword": {
+        "label": "关键词报表",
+        "query_domains": ["word"],
+        "extra": {"isKeyWordNotContainChase": "true", "bizCodeIn": ["onebpSearch"]},
+        "fields": [*REPORT_LIST_FIELDS, "avgRank"],
+    },
+    "area": {
+        "label": "地域报表",
+        "query_domains": ["province"],
+        "extra": {},
+        "fields": REPORT_LIST_FIELDS,
+    },
+}
+
 
 class AlimamaError(Exception):
     """万相台接口错误的基类。"""
@@ -206,6 +301,241 @@ def report_query(
         body,
         headers,
         query={"csrfId": auth["csrfId"], "bizCode": BIZ_CODE},
+        timeout=timeout,
+    )
+    return (obj.get("data") or {}).get("list") or []
+
+
+def build_report_list_body(
+    report_type: str,
+    start: str,
+    end: str,
+    offset: int = 0,
+    page_size: int = 20,
+    is_today: bool = False,
+) -> dict:
+    """构造报表页列表请求体；今天用实时口径（fromRealTime=true）。"""
+    spec = REPORT_LIST_SPECS.get(report_type)
+    if not spec:
+        choices = ", ".join(REPORT_LIST_SPECS)
+        raise ValueError(f"未知报表类型: {report_type}（可选：{choices}）")
+    body = {
+        "bizCode": "universalBP",
+        "fromRealTime": bool(is_today),
+        "source": "baseReport",
+        "byPage": True,
+        "totalTag": True,
+        "needCountAccelerate": True,
+        "byPageWithoutCount": False,
+        "rptType": spec.get("rpt_type", report_type),
+        "pageSize": page_size,
+        "offset": offset,
+        "havingList": [],
+        "endTime": end,
+        "from": "pcBaseReport",
+        "unifyType": "zhai",
+        "effectEqual": 15,
+        "startTime": start,
+        "splitType": "day",
+        "queryFieldIn": list(spec["fields"]),
+        "queryDomains": list(spec["query_domains"]),
+    }
+    body.update(spec.get("extra") or {})
+    return body
+
+
+def report_list(
+    headers: dict[str, str],
+    auth: dict,
+    report_type: str,
+    start: str,
+    end: str,
+    offset: int = 0,
+    page_size: int = 20,
+    is_today: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> dict:
+    """报表页列表（商品/计划/单元/创意/人群/关键词/地域）；返回 data。
+
+    data 结构：count + totalData[0]（汇总行）+ list（维度行）。
+    offset 分页已实测有效。
+    """
+    body = build_report_list_body(
+        report_type, start, end, offset, page_size, is_today
+    )
+    body["csrfId"] = auth["csrfId"]
+    body["loginPointId"] = auth.get("loginPointId") or ""
+    obj = _post_json(
+        "/report/query.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": "universalBP"},
+        timeout=timeout,
+    )
+    return obj.get("data") or {}
+
+
+def campaign_find_list(
+    headers: dict[str, str],
+    auth: dict,
+    biz_code: str,
+    status_list: tuple[str, ...] = ("start", "pause"),
+    page_source: str = "simplifyQueryList",
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[dict]:
+    """按场景列出在投/暂停计划（不依赖报表日期，可用于发现新计划）。"""
+    body = {
+        "statusList": list(status_list),
+        "bizCode": biz_code,
+        "pageSource": page_source,
+        "csrfId": auth["csrfId"],
+        "loginPointId": auth.get("loginPointId") or "",
+    }
+    obj = _post_json(
+        "/campaign/findList.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": biz_code},
+        timeout=timeout,
+    )
+    return (obj.get("data") or {}).get("list") or []
+
+
+def adgroup_find_list(
+    headers: dict[str, str],
+    auth: dict,
+    biz_code: str,
+    campaign_id: int | str,
+    status_list: tuple[str, ...] = ("start", "pause"),
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[dict]:
+    """计划下的单元列表（不打开页面）。"""
+    body = {
+        "statusList": list(status_list),
+        "bizCode": biz_code,
+        "campaignId": str(campaign_id),
+        "csrfId": auth["csrfId"],
+        "loginPointId": auth.get("loginPointId") or "",
+    }
+    obj = _post_json(
+        "/adgroup/findList.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": biz_code},
+        timeout=timeout,
+    )
+    return (obj.get("data") or {}).get("list") or []
+
+
+def adgroup_get(
+    headers: dict[str, str],
+    auth: dict,
+    biz_code: str,
+    campaign_id: int | str,
+    adgroup_id: int | str,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> dict:
+    """单元设置/详情（adgroupName、onlineStatus、出价类型、智能创意等）。"""
+    body = {
+        "bizCode": biz_code,
+        "campaignId": str(campaign_id),
+        "adgroupId": str(adgroup_id),
+        "csrfId": auth["csrfId"],
+        "loginPointId": auth.get("loginPointId") or "",
+    }
+    obj = _post_json(
+        "/adgroup/get.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": biz_code},
+        timeout=timeout,
+    )
+    return (obj.get("data") or {}).get("adgroup") or {}
+
+
+def adgroup_report_query(
+    headers: dict[str, str],
+    auth: dict,
+    biz_code: str,
+    campaign_id: int | str,
+    adgroup_id: int | str,
+    start: str,
+    end: str,
+    fields: list[str] | None = None,
+    is_today: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[dict]:
+    """单元维度报表；返回 data.list（单日或区间汇总）。
+
+    查今天时必须 is_today=True（fromRealTime=true），否则返回空。
+    """
+    body = {
+        "bizCode": biz_code,
+        "mx_bizCode": biz_code,
+        "campaignId": str(campaign_id),
+        "adgroupId": str(adgroup_id),
+        "startTime": start,
+        "endTime": end,
+        "strategyCampaignIdIn": [int(campaign_id)],
+        "strategyAdgroupIdIn": [int(adgroup_id)],
+        "sourceList": ["adgroup_detail"],
+        "queryFieldIn": list(fields or ADGROUP_REPORT_FIELDS),
+        "csrfId": auth["csrfId"],
+        "loginPointId": auth.get("loginPointId") or "",
+    }
+    if is_today:
+        body["fromRealTime"] = True
+    obj = _post_json(
+        "/report/query.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": biz_code},
+        timeout=timeout,
+    )
+    return (obj.get("data") or {}).get("list") or []
+
+
+def adgroup_time_series(
+    headers: dict[str, str],
+    auth: dict,
+    biz_code: str,
+    campaign_id: int | str,
+    adgroup_id: int | str,
+    start: str,
+    end: str,
+    split_type: str = "day",
+    fields: list[str] | None = None,
+    is_today: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[dict]:
+    """单元时间明细（按日/小时）。
+
+    返回的行只包含有数据的日期；页面会把缺失日期补 0。
+    查今天时必须 is_today=True（fromRealTime=true），否则返回空。
+    """
+    body = {
+        "bizCode": biz_code,
+        "mx_bizCode": biz_code,
+        "campaignId": str(campaign_id),
+        "adgroupId": str(adgroup_id),
+        "startTime": start,
+        "endTime": end,
+        "strategyCampaignIdIn": [int(campaign_id)],
+        "strategyAdgroupIdIn": [int(adgroup_id)],
+        "sourceList": ["adgroup_detail"],
+        "queryDomains": ["date"],
+        "splitType": split_type,
+        "queryFieldIn": list(fields or ADGROUP_REPORT_FIELDS),
+        "csrfId": auth["csrfId"],
+        "loginPointId": auth.get("loginPointId") or "",
+    }
+    if is_today:
+        body["fromRealTime"] = True
+    obj = _post_json(
+        "/report/query.json",
+        body,
+        headers,
+        query={"csrfId": auth["csrfId"], "bizCode": biz_code},
         timeout=timeout,
     )
     return (obj.get("data") or {}).get("list") or []

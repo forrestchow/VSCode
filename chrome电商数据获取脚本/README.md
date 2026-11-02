@@ -85,7 +85,17 @@ python collect_alimama.py --date 2026-11-02,2026-11-01
 python collect_alimama.py --days 7                         # 最近 7 天（含今天）
 python collect_alimama.py --account 察尔汗 --full-day
 python collect_alimama.py --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion --date 2026-11-02
+python collect_alimama.py --reports item_promotion,campaign,adgroup,creative,crowd,bidword,area --date 2026-11-01 --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion_campaign --date 2026-11-01 --no-hourly --no-campaigns
+python collect_alimama.py --reports item_promotion_adgroup --date 2026-11-01 --no-hourly --no-campaigns
 ```
+
+报表页列表由 `alimama_config.json` 的 `reports` 控制（默认 `["item_promotion"]`），`--reports` 可覆盖；`reportPageSize` 默认 100，自动按 `offset` 翻页。
+
+商品报表支持维度变体：`item_promotion`（商品）、`item_promotion_campaign`（商品×计划）、`item_promotion_adgroup`（商品×计划×单元）。
+
+单元数据（无 tab）：`adgroup_find_list()` / `adgroup_get()` / `adgroup_report_query()` / `adgroup_time_series()`，链路见 `02-URL与接口映射.md` 9.7。时间明细接口只返回有数据的日期，页面表格会把缺失日期补 0；查今天时汇总/分时必须 `fromRealTime=true`。
 
 输出在 `data/alimama/{店铺}_{memberId}/{日期}/`：
 
@@ -94,6 +104,10 @@ python collect_alimama.py --no-hourly --no-campaigns
 | `overview.json` | 总览指标（消耗、点击、成交、ROI 等） |
 | `hourly.json` | 分时报表 |
 | `campaigns.json` | 计划列表 + 每个计划的 `reportInfoList` |
+| `item_promotion.json` | 商品报表：`totalData` 汇总 + `list` 商品行 |
+| `item_promotion_campaign.json` | 商品×计划：每行带 `campaignId` / `campaignName` / `promotions` |
+| `item_promotion_adgroup.json` | 商品×计划×单元：再带 `adgroupId` / `adgroupName` |
+| `campaign/adgroup/creative/crowd/bidword/area.json` | 计划/单元/创意/人群/关键词/地域报表（`--reports` 选择） |
 
 说明：历史日期的 `overview.json` 默认与页面一致，是「截至当前小时」口径；需要全天合计加 `--full-day`。`hourly.json` 和 `campaigns.json` 始终是全天数据。
 

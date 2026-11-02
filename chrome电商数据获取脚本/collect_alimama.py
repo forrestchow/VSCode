@@ -4,6 +4,7 @@
 用法:
     python collect_alimama.py
     python collect_alimama.py --account 察尔汗 --date 2026-11-02
+    python collect_alimama.py --reports item_promotion --date 2026-11-02
     python collect_alimama.py --days 7
     python collect_alimama.py --port 9222 --output data/alimama --delay 1-3
 
@@ -27,6 +28,7 @@ from pathlib import Path
 import websockets
 
 from alimama_api import (
+    REPORT_LIST_SPECS,
     AlimamaError,
     ApiError,
     AuthError,
@@ -34,6 +36,7 @@ from alimama_api import (
     campaign_find_page,
     check_access,
     make_headers,
+    report_list,
     report_query,
 )
 from list_browser_profiles import CDP, http_json
@@ -83,6 +86,8 @@ def load_config(path: Path) -> dict:
     cfg.setdefault("accounts", [])
     cfg.setdefault("dates", [])
     cfg.setdefault("campaignPageSize", 40)
+    cfg.setdefault("reportPageSize", 100)
+    cfg.setdefault("reports", [])
     cfg.setdefault("delay", [1, 3])
     cfg.setdefault("outputDir", "data/alimama")
     return cfg
@@ -193,6 +198,46 @@ def fetch_campaigns(
     return {"count": count or len(items), "list": items}
 
 
+def fetch_report_list(
+    headers: dict[str, str],
+    auth: dict,
+    report_type: str,
+    date_str: str,
+    is_today: bool,
+    page_size: int,
+    delay: tuple[float, float],
+) -> dict:
+    """按 offset 翻页取完一个报表页的列表。"""
+    items: list[dict] = []
+    total_data: list[dict] = []
+    count = 0
+    offset = 0
+    while True:
+        data = call_with_refresh(
+            lambda off=offset: report_list(
+                headers, auth, report_type, date_str, date_str, off, page_size, is_today
+            ),
+            headers,
+            auth,
+        )
+        page_items = data.get("list") or []
+        items.extend(page_items)
+        total_data = data.get("totalData") or total_data
+        count = data.get("count") or count
+        time.sleep(random.uniform(*delay))
+        if len(page_items) < page_size:
+            break
+        if count and len(items) >= count:
+            break
+        offset += page_size
+    return {
+        "count": count or len(items),
+        "totalData": total_data,
+        "list": items,
+        "pageSize": page_size,
+    }
+
+
 def save_payload(
     output_dir: Path,
     account: dict,
@@ -248,6 +293,8 @@ def collect_date(
     date_str: str,
     output_dir: Path,
     page_size: int,
+    reports: list[str],
+    report_page_size: int,
     delay: tuple[float, float],
     with_hourly: bool,
     with_campaigns: bool,
@@ -279,6 +326,23 @@ def collect_date(
             "计划列表",
             {"startTime": date_str, "endTime": date_str, "pageSize": page_size},
             lambda: fetch_campaigns(headers, auth, date_str, is_today, page_size, delay),
+        ))
+    for report_type in reports:
+        spec = REPORT_LIST_SPECS[report_type]
+        jobs.append((
+            report_type,
+            spec["label"],
+            {
+                "startTime": date_str,
+                "endTime": date_str,
+                "pageSize": report_page_size,
+                "rptType": spec.get("rpt_type", report_type),
+                "queryDomains": list(spec["query_domains"]),
+                "fromRealTime": is_today,
+            },
+            lambda rt=report_type: fetch_report_list(
+                headers, auth, rt, date_str, is_today, report_page_size, delay
+            ),
         ))
 
     for name, label, request, fn in jobs:
@@ -330,6 +394,8 @@ def collect_date(
         })
         if name == "campaigns":
             log(f"    [OK] {label}: {response.get('count')} 个计划")
+        elif name in REPORT_LIST_SPECS:
+            log(f"    [OK] {label}: {response.get('count')} 条")
         elif name == "hourly":
             log(f"    [OK] {label}: {len(response)} 行")
         else:
@@ -341,6 +407,15 @@ async def run(args) -> int:
     cfg = load_config(Path(args.config))
     port = int(args.port or cfg.get("port", 9222))
     page_size = int(args.page_size or cfg.get("campaignPageSize", 40))
+    report_page_size = int(args.report_page_size or cfg.get("reportPageSize", 100))
+    raw_reports = args.reports if args.reports is not None else cfg.get("reports")
+    reports = as_str_list(raw_reports)
+    unknown_reports = [name for name in reports if name not in REPORT_LIST_SPECS]
+    if unknown_reports:
+        raise SystemExit(
+            f"未知报表类型: {', '.join(unknown_reports)}"
+            f"（可选：{', '.join(REPORT_LIST_SPECS)}）"
+        )
     delay = parse_delay(args.delay or cfg.get("delay", [1, 3]))
     dates = resolve_dates(args, cfg)
 
@@ -382,7 +457,10 @@ async def run(args) -> int:
         return 0
 
     log(f"账号：{account_label} | cookies={len(cookies)}")
-    log(f"日期：{', '.join(dates)} | 端口：{port} | 输出：{output_dir}")
+    log(
+        f"日期：{', '.join(dates)} | 报表页：{', '.join(reports) or '-'}"
+        f" | 端口：{port} | 输出：{output_dir}"
+    )
 
     stats = RunStats(started_at=time.strftime("%Y-%m-%d %H:%M:%S"))
     for date_str in dates:
@@ -392,6 +470,8 @@ async def run(args) -> int:
             date_str,
             output_dir,
             page_size,
+            reports,
+            report_page_size,
             delay,
             with_hourly=not args.no_hourly,
             with_campaigns=not args.no_campaigns,
@@ -432,6 +512,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-hourly", action="store_true", help="不采分时报表")
     parser.add_argument("--no-campaigns", action="store_true", help="不采计划列表")
+    parser.add_argument(
+        "--reports",
+        default=None,
+        help="报表页列表，逗号分隔：item_promotion,campaign,adgroup,creative,crowd,bidword,area",
+    )
+    parser.add_argument(
+        "--report-page-size",
+        type=int,
+        default=None,
+        help="报表页每页条数，默认 100",
+    )
     return parser
 
 

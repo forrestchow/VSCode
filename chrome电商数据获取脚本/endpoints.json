@@ -297,17 +297,288 @@
             "status": "抓包确认，未直接调用"
           }
         }
+      },
+      "#!/report/item_promotion": {
+        "name": "商品报表",
+        "endpoints": {
+          "report_list": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "query": "?csrfId={csrfId}&bizCode=universalBP",
+            "body": {
+              "bizCode": "universalBP",
+              "rptType": "item_promotion",
+              "queryDomains": ["promotion"],
+              "subPromotionTypes": ["ITEM"],
+              "source": "baseReport",
+              "from": "pcBaseReport",
+              "unifyType": "zhai",
+              "effectEqual": 15,
+              "byPage": true,
+              "totalTag": true,
+              "needCountAccelerate": true,
+              "byPageWithoutCount": false,
+              "pageSize": 100,
+              "offset": 0,
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "splitType": "day",
+              "fromRealTime": "今天 true / 历史 false",
+              "queryFieldIn": "见 alimama_api.REPORT_LIST_FIELDS"
+            },
+            "returns": "data.count + data.totalData[0] 汇总 + data.list 商品行",
+            "status": "已验证",
+            "note": "offset 分页；单日 start=end；页面默认展示最近 7 天；维度变体：queryDomains 加 campaign（商品×计划），再加 adgroup（商品×计划×单元）"
+          }
+        }
+      },
+      "#!/manage/search-detail": {
+        "name": "关键词推广详情页（计划/单元）",
+        "endpoints": {
+          "campaign_find_list": {
+            "url": "/campaign/findList.json",
+            "method": "POST",
+            "body": {
+              "statusList": ["start", "pause"],
+              "bizCode": "onebpSearch",
+              "pageSource": "simplifyQueryList"
+            },
+            "returns": "data.list：campaignId / campaignName（按 bizCode）",
+            "status": "已验证"
+          },
+          "adgroup_find_list": {
+            "url": "/adgroup/findList.json",
+            "method": "POST",
+            "body": {
+              "statusList": ["start", "pause"],
+              "bizCode": "onebpSearch",
+              "campaignId": "计划 ID"
+            },
+            "returns": "data.list：adgroupId / adgroupName / onlineStatus / smartCreative",
+            "status": "已验证"
+          },
+          "adgroup_get": {
+            "url": "/adgroup/get.json",
+            "method": "POST",
+            "body": {
+              "bizCode": "onebpSearch",
+              "campaignId": "计划 ID",
+              "adgroupId": "单元 ID"
+            },
+            "returns": "data.adgroup：单元设置（出价类型、在线状态、智能创意、审核信息等）",
+            "status": "已验证"
+          },
+          "adgroup_report": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "query": "?csrfId={csrfId}&bizCode=onebpSearch",
+            "body": {
+              "bizCode": "onebpSearch",
+              "mx_bizCode": "onebpSearch",
+              "campaignId": "计划 ID",
+              "adgroupId": "单元 ID",
+              "strategyCampaignIdIn": ["计划 ID（数字）"],
+              "strategyAdgroupIdIn": ["单元 ID（数字）"],
+              "sourceList": ["adgroup_detail"],
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "fromRealTime": "今天 true / 历史 false 或省略",
+              "queryFieldIn": "见 alimama_api.ADGROUP_REPORT_FIELDS"
+            },
+            "returns": "data.list：单元维度指标（单日或区间汇总）",
+            "status": "已验证"
+          },
+          "adgroup_time_series": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "query": "?csrfId={csrfId}&bizCode=onebpSearch",
+            "body": {
+              "bizCode": "onebpSearch",
+              "mx_bizCode": "onebpSearch",
+              "campaignId": "计划 ID",
+              "adgroupId": "单元 ID",
+              "strategyCampaignIdIn": ["计划 ID（数字）"],
+              "strategyAdgroupIdIn": ["单元 ID（数字）"],
+              "sourceList": ["adgroup_detail"],
+              "queryDomains": ["date"],
+              "splitType": "day | hour",
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "fromRealTime": "今天 true / 历史 false 或省略",
+              "queryFieldIn": "见 alimama_api.ADGROUP_REPORT_FIELDS"
+            },
+            "returns": "data.list：day 用 thedate；hour 用 hourId（0-23）；只返回有数据的日期/小时，页面会补 0",
+            "status": "已验证"
+          },
+          "promotion_theme_compare": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "query": "?csrfId={csrfId}&bizCode=onebpSearch",
+            "body": {
+              "bizCode": "onebpSearch",
+              "strategyCampaignIdIn": ["计划 ID"],
+              "strategyAdgroupIdIn": ["单元 ID"],
+              "strategyBidwordIdIn": [6],
+              "isAutoMatchedIn": [24],
+              "sourceList": ["theme_campare"],
+              "queryDomains": ["account", "campaign", "theme"],
+              "fromRealTime": true,
+              "splitType": "sum",
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "queryFieldIn": ["trendThemeName", "weekCapacityChangeRatio", "adPv", "click", "charge", "ctr", "ecpc", "alipayInshopAmt", "alipayInshopNum", "cvr", "cartInshopNum", "roi"],
+              "byPage": true,
+              "pageSize": 10,
+              "offset": 0
+            },
+            "returns": "data.list：趋势主题 + 指标",
+            "status": "已验证"
+          },
+          "promotion_theme_keywords": {
+            "url": "/report/query.json",
+            "method": "POST",
+            "query": "?csrfId={csrfId}&bizCode=onebpSearch",
+            "body": {
+              "bizCode": "onebpSearch",
+              "strategyCampaignIdIn": ["计划 ID"],
+              "strategyAdgroupIdIn": ["单元 ID"],
+              "strategyBidwordIdIn": [6],
+              "isAutoMatchedIn": [24],
+              "sourceList": ["theme_top_keyword"],
+              "queryDomains": ["account", "campaign", "word"],
+              "fromRealTime": true,
+              "splitType": "sum",
+              "startTime": "YYYY-MM-DD",
+              "endTime": "YYYY-MM-DD",
+              "queryFieldIn": ["originalWord", "hotness", "adPv", "click", "charge", "ctr", "ecpc", "alipayInshopAmt", "alipayInshopNum", "cvr", "cartInshopNum", "roi"],
+              "disPlaySystemWord": true,
+              "byPage": true,
+              "pageSize": 30,
+              "offset": 0,
+              "orderField": "alipayInshopAmt",
+              "orderBy": "desc"
+            },
+            "returns": "data.list：Top 关键词 + hotness / 指标",
+            "status": "已验证"
+          },
+          "campaign_get": {
+            "url": "/campaign/get.json",
+            "method": "POST",
+            "body": {
+              "bizCode": "onebpSearch",
+              "campaignId": "计划 ID"
+            },
+            "returns": "data.campaign：计划设置",
+            "status": "抓包确认，未直接调用"
+          },
+          "bidword_find_list": {
+            "url": "/bidword/findList.json",
+            "method": "POST",
+            "body": {
+              "bizCode": "onebpSearch",
+              "campaignIdList": ["计划 ID"],
+              "adgroupIdList": ["单元 ID"]
+            },
+            "status": "抓包确认，未直接调用"
+          },
+          "creative_find_page": {
+            "url": "/creative/horizontal/findPage.json",
+            "method": "POST",
+            "body": {
+              "bizCode": "onebpSearch",
+              "campaignIdList": ["计划 ID"],
+              "adgroupIdList": ["单元 ID"],
+              "offset": 0,
+              "pageSize": 1
+            },
+            "status": "抓包确认，未直接调用"
+          }
+        }
+      }
+    },
+    "report_pages": {
+      "item_promotion": {
+        "name": "商品报表",
+        "route": "#!/report/item_promotion?rptType=item_promotion",
+        "queryDomains": ["promotion"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "status": "已验证"
+      },
+      "item_promotion_campaign": {
+        "name": "商品报表（商品×计划）",
+        "route": "#!/report/item_promotion?rptType=item_promotion&queryDomains=%5B%22promotion%22%2C%22campaign%22%5D",
+        "rptType": "item_promotion",
+        "queryDomains": ["promotion", "campaign"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "returns": "每行带 promotionId / campaignId / campaignName / promotions；totalData 与商品维度一致",
+        "status": "已验证"
+      },
+      "item_promotion_adgroup": {
+        "name": "商品报表（商品×计划×单元）",
+        "route": "#!/report/item_promotion?rptType=item_promotion&queryDomains=%5B%22promotion%22%2C%22campaign%22%2C%22adgroup%22%5D",
+        "rptType": "item_promotion",
+        "queryDomains": ["promotion", "campaign", "adgroup"],
+        "extra": {"subPromotionTypes": ["ITEM"]},
+        "returns": "在商品×计划基础上再带 adgroupId / adgroupName",
+        "status": "已验证"
+      },
+      "campaign": {
+        "name": "计划报表",
+        "route": "#!/report/campaign?rptType=campaign",
+        "queryDomains": ["campaign"],
+        "status": "已验证"
+      },
+      "adgroup": {
+        "name": "单元报表",
+        "route": "#!/report/adgroup?rptType=adgroup",
+        "queryDomains": ["adgroup"],
+        "extra": {"bizCodeIn": ["onebpSearch"]},
+        "status": "已验证"
+      },
+      "creative": {
+        "name": "创意报表",
+        "route": "#!/report/creative?rptType=creative",
+        "queryDomains": ["creative", "promotion"],
+        "status": "已验证"
+      },
+      "crowd": {
+        "name": "人群报表",
+        "route": "#!/report/crowd?rptType=crowd",
+        "queryDomains": ["crowd"],
+        "extra": {
+          "filterAppendSubwayChannel": true,
+          "filterNullCrowdSubwayTag": true
+        },
+        "status": "已验证"
+      },
+      "bidword": {
+        "name": "关键词报表",
+        "route": "#!/report/bidword?rptType=bidword",
+        "queryDomains": ["word"],
+        "extra": {
+          "isKeyWordNotContainChase": "true",
+          "bizCodeIn": ["onebpSearch"]
+        },
+        "status": "已验证"
+      },
+      "area": {
+        "name": "地域报表",
+        "route": "#!/report/area?rptType=area",
+        "queryDomains": ["province"],
+        "status": "已验证"
       }
     },
     "parameter_notes": {
       "csrfId": "checkAccess 返回的会话级 token；缺失或过期时接口返回 HTTP 403",
       "loginPointId": "同一次 checkAccess 返回，可随 body 一起传",
       "startTime / endTime": "YYYY-MM-DD；单日 start=end",
-      "fromRealTime": "查询今天时 true；历史日期 false",
+      "fromRealTime": "查询今天时 true；历史日期 false；报表列表接口对今天必须 true，否则返回 0 行",
       "fromHourTable": "历史日期固定 true",
       "allDay": "历史分时 query 用 true；历史总览默认 false（截至当前小时），--full-day 改 true",
-      "queryDomains": "分时查询传 [date]",
-      "sourceList": "总览 [scene]；计划列表条件 [scene, campaign_list]"
+      "queryDomains": "分时查询传 [date]；报表列表按维度传（见 report_pages）",
+      "sourceList": "总览 [scene]；计划列表条件 [scene, campaign_list]",
+      "offset / pageSize（报表列表）": "offset 分页已实测；pageSize 默认 100",
+      "queryFieldIn（报表列表）": "通用 13 个指标；bidword 额外带 avgRank"
     }
   },
   "parameter_notes": {
