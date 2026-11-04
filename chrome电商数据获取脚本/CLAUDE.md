@@ -153,6 +153,10 @@ platforms/erp/                  # 待写
 - 正常取数不创建 tab；只有 `--profile-path` 和接口探测兜底会开后台页
 - 万相台 `csrfId` 不在 Cookie / localStorage / HTML 里，必须从 `checkAccess` 拿；该接口不需要 csrf，所以不需要先打开页面
 - 万相台历史总览默认是页面口径（截至当前小时），`--full-day` 才是全天；报数时先确认用哪个口径
+- 万相台报表页列表统一 `POST /report/query.json`，query 用 `bizCode=universalBP`；今天必须 `fromRealTime=true`（否则返回 0 行），`offset` 分页；各页差异见 `endpoints.json` 的 `report_pages`
+- 商品报表维度由 `queryDomains` 控制：商品 `["promotion"]` → 商品×计划 `["promotion","campaign"]` → 商品×计划×单元 `["promotion","campaign","adgroup"]`
+- 单元汇总 / 分时查今天必须 `fromRealTime=true`，否则返回空；小时明细用 `hourId`（0-23）
+- 推广解读数据来自 `sourceList=["theme_campare"]` / `["theme_top_keyword"]`；「过去 7 天」= 最近 7 个完整日（不含今天）；Top 关键词每页最多 20 条，区间 `count>20` 时必须 `offset` 翻页
 - 找新接口的顺序：已开页面 `performance` 资源列表 → 下载 `op-cc/app.js`、`65.js` → grep `.json` → 从代码上下文确认参数。不要猜 `index.js`，不要扫 Chrome 缓存（详见 `SPEC.md` 4.6）
 - Windows 下入口脚本统一 `reconfigure(encoding="utf-8", errors="replace")`，新增入口脚本沿用
 - 目录名用英文：`platforms/<platform>/<source>/`；每个已实现的数据源必须有自己的 `collect.py`、`api.py`、`endpoints.json`、`config.json`，待写数据源先用 `README.md` 占位

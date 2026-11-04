@@ -50,3 +50,12 @@
 - 临时修复：读取输入/显示值前后对比，按公式验证。
 - 新规则：纯前端计算抓不到 XHR；用 DOM/页面状态，并对比前后值。
 - 是否晋升到 SKILL.md：是（通用规则）。
+
+### 2026-11-02 · Playwright 键盘无法操作密码管理器弹层（UIA 可行）
+
+- 症状：Playwright 点击 `#fm-login-id` 后 Chrome 弹出保存的账号；`frame.press("ArrowDown")` 后账号/密码仍为空。
+- 根因分类：浏览器 UI，不在 DOM/网络。
+- 证据：弹层是独立的 `Chrome_WidgetWin_1` 窗口；UIA 可见 `List "自动填充"` 和 `ListItem "察尔汗壹品盐专卖店:绍飞 的密码, login.taobao.com"`；CDP 键盘事件不改变输入框值。
+- 临时修复：用 Windows UI Automation 取得该 ListItem，调用 `InvokePattern.Invoke()`，Chrome 自动填入账号和密码；再用 Playwright 点击 `button.fm-submit.password-login`，登录成功。
+- 新规则：密码管理器弹层交给 OS 级 UIA（ListItem 通常支持 `InvokePattern`）；Playwright/CDP 只负责页面内元素。
+- 是否晋升到 SKILL.md：否（SKILL.md 已有「浏览器 UI 不是 DOM」规则，此处补充具体操作配方）。

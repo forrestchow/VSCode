@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-02 · 案例补充：密码管理器弹层
+
+- 记录 Playwright/CDP 无法操作 Chrome 自动填充弹层；Windows UI Automation 的 `InvokePattern` 可以选中保存的账号并自动填表。
+
 ## 2026-11-02 · 作用域下调
 
 - 从用户级（`~/.claude/skills/dom-locating`）迁移到目录级（`E:\VS Code\chrome电商数据获取脚本\.claude\skills\dom-locating`）。
