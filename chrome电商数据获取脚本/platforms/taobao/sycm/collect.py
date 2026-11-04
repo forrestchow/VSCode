@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """生意参谋多账号取数：CDP 读 Cookie → HTTP 取 token → 调 JSON 接口 → 存文件。
 
-用法:
-    python collect.py
-    python collect.py --account 察尔汗
-    python collect.py --item 731918476865 --date 2026-11-01
-    python collect.py --endpoint sale_overview,flow_top
+用法（从项目根目录）:
+    python -m platforms.taobao.sycm.collect
+    python -m platforms.taobao.sycm.collect --account 察尔汗
+    python -m platforms.taobao.sycm.collect --item 731918476865 --date 2026-11-01
+    python -m platforms.taobao.sycm.collect --endpoint sale_overview,flow_top
 """
 from __future__ import annotations
 
@@ -23,7 +23,12 @@ from pathlib import Path
 
 import websockets
 
-from list_browser_profiles import (
+# 允许两种运行方式：python -m platforms.taobao.sycm.collect
+# 或 python platforms/taobao/sycm/collect.py
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from core.browser_profiles import (
     CDP,
     JS_IDENTIFY,
     attach_page,
@@ -34,7 +39,7 @@ from list_browser_profiles import (
     read_page_cookies,
     shop_hint,
 )
-from sycm_api import (
+from platforms.taobao.sycm.api import (
     BASE,
     ApiError,
     AuthError,
@@ -53,6 +58,7 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = APP_DIR / "config.json"
 ENDPOINTS_FILE = APP_DIR / "endpoints.json"
 
@@ -516,9 +522,9 @@ async def run(args) -> int:
     delay = parse_delay(args.delay or cfg.get("delay", [1, 3]))
     date_type = str(cfg.get("dateType", "day"))
 
-    output_dir = Path(args.output) if args.output else Path(cfg.get("outputDir", "data"))
+    output_dir = Path(args.output) if args.output else Path(cfg.get("outputDir", "data/taobao/sycm"))
     if not output_dir.is_absolute():
-        output_dir = APP_DIR / output_dir
+        output_dir = PROJECT_ROOT / output_dir
 
     try:
         version = http_json(f"http://localhost:{port}/json/version")
@@ -562,7 +568,7 @@ async def run(args) -> int:
             accounts.append(account)
 
         if not accounts:
-            log("没有匹配的账号。可先运行: python list_browser_profiles.py")
+            log("没有匹配的账号。可先运行: python -m core.browser_profiles")
             return 1
 
         log(f"共 {len(accounts)} 个账号，{len(items)} 个商品，{len(dates)} 个日期")

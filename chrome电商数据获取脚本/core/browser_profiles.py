@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """列出当前 Chrome 进程里的 browser context（profile 窗口）、当前页和账号。
 
-用法:
-    python list_browser_profiles.py
-    python list_browser_profiles.py --json
-    python list_browser_profiles.py --profile-path   # 额外开临时后台页读 chrome://version
+用法（从项目根目录）:
+    python -m core.browser_profiles
+    python -m core.browser_profiles --json
+    python -m core.browser_profiles --profile-path   # 额外开临时后台页读 chrome://version
 
 说明:
     - browserContextId 是 CDP 层 ID，不是 Chrome profile 目录名。
