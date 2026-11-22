@@ -1,21 +1,21 @@
 # claude终端界面修改
 
-Claude Code 终端状态栏（statusLine）定制：目录、模型、上下文余量、上一轮（一次提问 → 最终答复）token 用量、按 DeepSeek 价格换算的费用占比、权限模式，外加 Unicode 边框。
+Claude Code 终端状态栏（statusLine）定制：目录、模型、上下文余量、上一轮（一次提问 → 最终答复）费用、当前会话累计总费用、权限模式，外加 Unicode 边框。
 
 - 归属层级：**Claude Code 用户级全局配置**（`~/.claude`），不是 VS Code 配置。
   VS Code 只是终端宿主；换到 Windows Terminal / PowerShell 运行同一个 `claude`，显示一致。
 - 平台：Windows 10 + Git Bash（statusLine 命令经 Git Bash 执行）
-- 最后更新：2026-10-29
+- 最后更新：2026-11-22
 
 ## 效果预览
 
 ```
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ 目录: E:\淘系自动上架 | 模型: deepseek-flash[1m]                                         ┃
-┃ Free space: 877.0k (87.7%) | 上一轮: 出 8.7k · 入 7.53M                                  ┃
-┃ 总费用: ¥0.3861（高峰价） | 输出占比: 18.0% | 输入命中占比: 77.9% | 输入未命中占比: 4.1% ┃
-┃ 权限模式: bypassPermissions                                                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 目录: E:\淘系自动上架 | 模型: deepseek-flash[1m] ┃
+┃ Free space: 877.0k (87.7%)                       ┃
+┃ 上一轮费用: ¥0.3861（高峰价） | 总费用: ¥1.2345  ┃
+┃ 权限模式: bypassPermissions                      ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
 ## 文件清单
@@ -35,7 +35,7 @@ Claude Code 终端状态栏（statusLine）定制：目录、模型、上下文�
 3. `statusline.py` 按 **UTF-8** 显式读取 stdin（Windows 默认 GBK，遇中文路径会崩溃导致状态栏空白）。
 4. 读取 `transcript_path` 指向的会话 JSONL：
    - 尾部 512KB：最后一条 `"permissionMode"` → 权限模式行；最后一条带 `"usage"` 的消息的 `timestamp` 只在回退时用于计价
-   - 全文倒序扫描 → 切出最后一轮并累计用量（见下节）
+   - 全文倒序扫描 → 切出最后一轮并累计用量，同时汇总整个会话的用量（见下节）
 5. 输出多行文本；Claude Code 逐行渲染（官方支持多行，每个换行一行）。脚本按显示宽度补齐边框（CJK 字符按 2 列）。
 
 ### 「上一轮」怎么切
@@ -47,7 +47,7 @@ bypass 模式下一次提问会连续触发几十次 API 调用（每个工具�
 - **合计**：起点之后所有 assistant 消息的 `message.usage` 累加。
 - **去重**：同一次响应会按 content block 写多行（thinking / text / tool_use 各一行），每行都带同一份 usage，按 `message.id` 只取一次。
 - **未答提问**：刚提交提问、还没有 API 调用时，回溯显示再上一轮，避免闪成 0。
-- **扫描**：按 256KB 块从文件末尾倒着读，命中提问即停；只有找不到边界时才读完整个文件（28MB 实测约 90ms）。
+- **扫描**：按 256KB 块从文件末尾倒着读到文件开头；切出上一轮后继续扫描以累计会话总用量（4.2MB 实测约 0.17s）。
 
 ### 用到的输入字段
 
@@ -58,7 +58,7 @@ bypass 模式下一次提问会连续触发几十次 API 调用（每个工具�
 | `context_window.context_window_size` | 计算剩余 token 绝对值 |
 | `context_window.remaining_percentage` | Free space 百分比（缺失时用 `100 - used_percentage`） |
 | `context_window.current_usage.{input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens}` | 回退用量：transcript 不可用或找不到轮次边界时，用最后一次 API 调用的数字 |
-| `transcript_path` | 倒序扫描整轮用量；尾部 512KB 取权限模式与回退计价时间 |
+| `transcript_path` | 倒序扫描整轮用量与会话累计用量；尾部 512KB 取权限模式与回退计价时间 |
 
 注：statusLine 输入**没有** cost 金额字段，费用一律本地计算。
 
@@ -67,14 +67,13 @@ bypass 模式下一次提问会连续触发几十次 API 调用（每个工具�
 | 行 | 内容 |
 |---|---|
 | 1 | `目录: <cwd> | 模型: <display_name>` |
-| 2 | `Free space: <剩余 token> (<xx.x>%) | 上一轮: 出 <n> · 入 <n>` |
-| 3 | `总费用: ¥<金额>（高峰价/空闲价/跨时段） | 输出占比: x% | 输入命中占比: x% | 输入未命中占比: x%` |
+| 2 | `Free space: <剩余 token> (<xx.x>%)` |
+| 3 | `上一轮费用: ¥<金额>（高峰价/空闲价/跨时段） | 总费用: ¥<金额>` |
 | 4 | `权限模式: <permissionMode>`（transcript 无记录时省略） |
 
-- “上一轮” = 用户最后一次提问到当前答复之间的**全部 API 调用**合计；正在回答时数字随步骤增长，答完即定格
-- “入” = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`
-- 第 3 行占比按**费用**加权；未命中占比取 `100 - 输出占比 - 命中占比`，保证合计 100.0%
-- 整轮用量和 `current_usage` 都取不到时，省略第 2 行后半段与第 3 行；模型不在价格表时不显示费用
+- “上一轮费用” = 用户最后一次提问到当前答复之间的**全部 API 调用**按各自时段计价之和；正在回答时随步骤增长，答完即定格
+- “总费用” = 当前会话 transcript 中**全部 API 调用**按各自时段计价之和（按 `message.id` 去重），包含工具调用和同文件 sidechain
+- 整轮用量和 `current_usage` 都取不到时，省略“上一轮费用”；模型不在价格表时不显示费用
 
 ## 计价规则（DeepSeek，CNY / 百万 tokens）
 
@@ -93,7 +92,7 @@ bypass 模式下一次提问会连续触发几十次 API 调用（每个工具�
   - 输出费 = `output_tokens × 输出单价`
   - 总费用 = 三者之和 ÷ 1,000,000
 - 每次 API 调用按**各自 `timestamp`** 所在时段计价；一轮跨过高峰/空闲边界时，标签显示「跨时段」
-- 上一轮的费用与占比均按整轮合计计算；回退到 `current_usage` 时只算最后一次调用
+- 上一轮费用按整轮合计计算，回退到 `current_usage` 时只算最后一次调用；总费用按整个 transcript 累计（同样按每次调用的时段分别计价）
 - **法定节假日未排除**：节假日 9–12 / 14–18 点仍按高峰价计算
 
 ## 安装 / 恢复
@@ -127,7 +126,7 @@ printf '%s' '{"workspace":{"current_dir":"E:/淘系自动上架"},"model":{"id":
 | 单价 / 新增模型 | `statusline.py` 顶部 `PRICES`、`ALIASES` |
 | 高峰时段定义 | `price_period()` |
 | 某行文案或顺序 | 搜索 `lines.append` / `segments.append` |
-| 轮次的起止定义 | `is_real_prompt()`（哪些消息算提问）、`round_usage()`（倒序扫描与累计） |
+| 轮次的起止定义 | `is_real_prompt()`（哪些消息算提问）、`scan_usage()`（倒序扫描、上一轮切分与会话累计） |
 | 边框样式 | `print_box()` 里的 `┏ ━ ┓ ┃ ┗ ┛`（可换 ASCII `+ - |`） |
 | 去掉权限模式行 | 删除 `last_permission_mode()` 调用及 `lines.append(f'权限模式...')` |
 | 定时刷新（时钟类需求） | settings.json 的 `statusLine` 加 `"refreshInterval": 30` |
@@ -141,8 +140,8 @@ printf '%s' '{"workspace":{"current_dir":"E:/淘系自动上架"},"model":{"id":
 - 权限模式只查尾部 512KB：更早的记录取不到时该行缺失；回退用量的计价时间则会退回当前时间。
 - 子代理若写入独立 transcript 文件，其用量不计入本轮；写进同一会话文件的 sidechain 调用计入。
 - 提问正文里若出现字面量 `"type":"tool_result"`，该提问会被预过滤跳过（极罕见），上一轮会并到更早一轮。
-- 超长轮次（几十 MB）倒序扫描约百毫秒内，状态栏刷新可能略慢。
-- provider 不返回 cache 字段时（当前实测 `cache_read` / `cache_creation` 均为 0），命中占比显示 0%。
+- 状态栏每次刷新都会倒序扫描整个 transcript 以累计总费用；文件很大时（数十 MB）会略慢（4.2 MB 实测约 0.17 s）。
+- provider 不返回 cache 字段时，费用只按 input/output 计算（缓存项按 0 计）。
 - 底部自带的 `⏵⏵ bypass permissions on` 属于 Claude Code footer，无法包进边框；框内第 4 行是对应信息。
 
 ## 变更记录
@@ -151,6 +150,7 @@ printf '%s' '{"workspace":{"current_dir":"E:/淘系自动上架"},"model":{"id":
 |---|---|
 | 2026-10-29 | 初版：修复 UTF-8 读取；加入目录/模型/Free space/上一轮用量/费用占比/权限模式/边框 |
 | 2026-10-29 | 「上一轮」改为整轮口径：从最后一条人工提问到当前答复，累计期间全部 API 调用（按 `message.id` 去重），费用按各调用时间戳分时段计价；未答提问回退到上一轮 |
+| 2026-11-22 | 第 2 行移除上一轮出/入 token；第 3 行改为「上一轮费用 | 总费用」，删除费用占比；总费用按整个会话 transcript 汇总计价 |
 
 ## 安全说明
 
