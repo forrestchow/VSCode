@@ -142,22 +142,31 @@ def is_real_prompt(entry):
     return False
 
 
-def round_usage(path):
-    """Usage of the latest round: one human prompt through the final answer.
+def scan_usage(path):
+    """Round usage plus whole-session token totals.
 
-    In bypass mode a single round makes many API calls (one per tool-use
-    step), and the transcript repeats each call once per content block, so
-    calls are de-duplicated by message.id. The scan runs backwards from the
-    newest line and stops at the prompt that opened the round; a prompt sent
+    The round part is the latest human prompt through the final answer. In
+    bypass mode a single round makes many API calls (one per tool-use step),
+    and the transcript repeats each call once per content block, so calls are
+    de-duplicated by message.id. The scan runs backwards from the newest line
+    and stops collecting at the prompt that opened the round; a prompt sent
     but not answered yet (no calls after it) falls through to the round
-    before it. Returns [(time, input, cache_write, cache_read, output), ...]
-    or None when no round boundary is found.
+    before it.
+
+    The same pass totals every unique call in the transcript, bucketed by
+    price period, so the whole-session cost can be priced call-by-call.
+    Returns (round_calls, totals): round_calls is
+    [(time, input, cache_write, cache_read, output), ...] or None when no
+    round boundary is found; totals maps 'peak'/'idle' to
+    [input, cache_write, cache_read, output].
     """
     if not path:
-        return None
+        return None, {}
     calls = []
+    totals = {'peak': [0, 0, 0, 0], 'idle': [0, 0, 0, 0]}
     seen = set()
     found_prompt = False
+    in_round = True
     try:
         for raw in iter_lines_reverse(path):
             if RE_ASSISTANT.search(raw):
@@ -174,13 +183,18 @@ def round_usage(path):
                     continue
                 if mid:
                     seen.add(mid)
-                calls.append((
-                    parse_time(entry.get('timestamp')),
-                    int(usage.get('input_tokens') or 0),
-                    int(usage.get('cache_creation_input_tokens') or 0),
-                    int(usage.get('cache_read_input_tokens') or 0),
-                    int(usage.get('output_tokens') or 0),
-                ))
+                ts = parse_time(entry.get('timestamp'))
+                t_in = int(usage.get('input_tokens') or 0)
+                t_cw = int(usage.get('cache_creation_input_tokens') or 0)
+                t_cr = int(usage.get('cache_read_input_tokens') or 0)
+                t_out = int(usage.get('output_tokens') or 0)
+                bucket = totals[price_period(ts or datetime.now(timezone.utc))]
+                bucket[0] += t_in
+                bucket[1] += t_cw
+                bucket[2] += t_cr
+                bucket[3] += t_out
+                if in_round:
+                    calls.append((ts, t_in, t_cw, t_cr, t_out))
             elif RE_USER.search(raw):
                 if RE_TOOL_RESULT.search(raw):
                     continue
@@ -190,15 +204,18 @@ def round_usage(path):
                     continue
                 if entry.get('type') != 'user' or not is_real_prompt(entry):
                     continue
+                if not in_round:
+                    continue
                 if calls:
                     found_prompt = True
-                    break
-                # Prompt sent, no API call yet: fall back to the round before it.
-                calls = []
-                seen = set()
+                    in_round = False
+                else:
+                    # Prompt sent, no API call yet: fall back to the round before it.
+                    calls = []
+                    seen = set()
     except OSError:
-        return None
-    return calls if found_prompt and calls else None
+        return None, {}
+    return (calls if found_prompt and calls else None), totals
 
 
 def disp_width(s):
@@ -221,7 +238,7 @@ def print_box(lines):
 
 transcript = data.get('transcript_path')
 tail = read_tail(transcript)
-calls = round_usage(transcript)
+calls, totals = scan_usage(transcript)
 
 # Line 1: working directory + model
 ws = data.get('workspace') or {}
@@ -234,8 +251,7 @@ m = data.get('model') or {}
 model = m.get('display_name') or m.get('id') or 'unknown'
 lines = [f'目录: {cwd} | 模型: {model}']
 
-# Line 2: free space | round tokens (fallback: last API call when the
-# transcript is unreadable or has no round boundary yet)
+# Line 2: free space (round token counts are implied by the costs below)
 segments = []
 cw = data.get('context_window') or {}
 
@@ -268,53 +284,51 @@ else:
     u_out = int(usage.get('output_tokens') or 0)
 usage_ok = bool(u_in or u_cw or u_cr or u_out)
 
-rates = None
 label = ''
 hit_cost = miss_cost = out_cost = 0.0
 
-if usage_ok:
-    segments.append(f'上一轮: 出 {fmt_tokens(u_out)} · 入 {fmt_tokens(u_in + u_cw + u_cr)}')
+base = re.sub(r'\[[^\]]*\]$', '', (m.get('id') or model or '')).strip()
+rates = PRICES.get(ALIASES.get(base, base))
 
-    base = re.sub(r'\[[^\]]*\]$', '', (m.get('id') or model or '')).strip()
-    rates = PRICES.get(ALIASES.get(base, base))
-    if rates:
-        if calls:
-            # Price every call at the period it was made in; a round that
-            # straddles the peak boundary cannot carry a single label.
-            periods = set()
-            for ts, c_in, c_cw, c_cr, c_out in calls:
-                period = price_period(ts or datetime.now(timezone.utc))
-                periods.add(period)
-                hit_p, miss_p, out_p = rates[period]
-                hit_cost += c_cr * hit_p / 1_000_000.0
-                miss_cost += (c_in + c_cw) * miss_p / 1_000_000.0
-                out_cost += c_out * out_p / 1_000_000.0
-            if len(periods) == 1:
-                label = '高峰价' if 'peak' in periods else '空闲价'
-            else:
-                label = '跨时段'
-        else:
-            period = price_period(last_request_time(tail))
+if usage_ok and rates:
+    if calls:
+        # Price every call at the period it was made in; a round that
+        # straddles the peak boundary cannot carry a single label.
+        periods = set()
+        for ts, c_in, c_cw, c_cr, c_out in calls:
+            period = price_period(ts or datetime.now(timezone.utc))
+            periods.add(period)
             hit_p, miss_p, out_p = rates[period]
-            hit_cost = u_cr * hit_p / 1_000_000.0
-            miss_cost = (u_in + u_cw) * miss_p / 1_000_000.0
-            out_cost = u_out * out_p / 1_000_000.0
-            label = '高峰价' if period == 'peak' else '空闲价'
+            hit_cost += c_cr * hit_p / 1_000_000.0
+            miss_cost += (c_in + c_cw) * miss_p / 1_000_000.0
+            out_cost += c_out * out_p / 1_000_000.0
+        if len(periods) == 1:
+            label = '高峰价' if 'peak' in periods else '空闲价'
+        else:
+            label = '跨时段'
+    else:
+        period = price_period(last_request_time(tail))
+        hit_p, miss_p, out_p = rates[period]
+        hit_cost = u_cr * hit_p / 1_000_000.0
+        miss_cost = (u_in + u_cw) * miss_p / 1_000_000.0
+        out_cost = u_out * out_p / 1_000_000.0
+        label = '高峰价' if period == 'peak' else '空闲价'
 
 if segments:
     lines.append(' | '.join(segments))
 
-# Line 3: total cost and its split by output / cache hit / cache miss
+# Line 3: previous round cost | whole-session cost
+cost_parts = []
 if usage_ok and rates:
-    total = hit_cost + miss_cost + out_cost
-    if total > 0:
-        p_out = round(out_cost / total * 100, 1)
-        p_hit = round(hit_cost / total * 100, 1)
-        p_miss = round(100 - p_out - p_hit, 1)
-    else:
-        p_out = p_hit = p_miss = 0.0
-    lines.append(f'总费用: {fmt_cost(total)}（{label}） | '
-                 f'输出占比: {p_out:.1f}% | 输入命中占比: {p_hit:.1f}% | 输入未命中占比: {p_miss:.1f}%')
+    cost_parts.append(f'上一轮费用: {fmt_cost(hit_cost + miss_cost + out_cost)}（{label}）')
+if rates and any(any(bucket) for bucket in totals.values()):
+    session_cost = 0.0
+    for period, (t_in, t_cw, t_cr, t_out) in totals.items():
+        hit_p, miss_p, out_p = rates[period]
+        session_cost += (t_cr * hit_p + (t_in + t_cw) * miss_p + t_out * out_p) / 1_000_000.0
+    cost_parts.append(f'总费用: {fmt_cost(session_cost)}')
+if cost_parts:
+    lines.append(' | '.join(cost_parts))
 
 # Line 4: permission mode (the built-in bypass footer cannot be moved inside)
 mode = last_permission_mode(tail)
